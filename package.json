@@ -1,0 +1,15 @@
+{
+  "name": "controlnet-dataset-generator",
+  "version": "1.0.0",
+  "description": "Generate ControlNet training datasets from 360°/180° footage",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron ."
+  },
+  "author": "Light Sail VR",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

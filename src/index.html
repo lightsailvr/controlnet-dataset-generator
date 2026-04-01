@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ControlNet Dataset Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0e12;
+      --bg-raised: #13161c;
+      --bg-card: #181c24;
+      --bg-input: #1e222c;
+      --border: #262b36;
+      --border-hover: #363d4d;
+      --text: #e4e8f0;
+      --text-dim: #8891a4;
+      --text-muted: #5c6478;
+      --accent: #4ecdc4;
+      --accent-dim: rgba(78, 205, 196, 0.12);
+      --accent-glow: rgba(78, 205, 196, 0.25);
+      --video-color: #f78166;
+      --image-color: #a78bfa;
+      --success: #4ecdc4;
+      --warn: #f0c674;
+      --danger: #f87171;
+      --radius: 8px;
+      --radius-lg: 12px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      font-family: 'DM Sans', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-app-region: drag;
+    }
+
+    .app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Title bar ── */
+    .titlebar {
+      height: 52px;
+      padding: 0 20px 0 80px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      -webkit-app-region: drag;
+    }
+    .titlebar-icon {
+      width: 32px; height: 32px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(78,205,196,0.2);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--accent);
+    }
+    .titlebar h1 { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; }
+    .titlebar-sub { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+
+    /* ── Content ── */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      -webkit-app-region: no-drag;
+    }
+
+    /* ── Dependency Check ── */
+    .dep-check {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .dep-check.ok { border-color: rgba(78,205,196,0.3); }
+    .dep-check.error { border-color: rgba(248,113,113,0.3); }
+    .dep-status {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; font-weight: 500;
+    }
+    .dep-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .dep-dot.ok { background: var(--success); }
+    .dep-dot.error { background: var(--danger); }
+    .dep-dot.checking {
+      background: var(--warn);
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse { 50% { opacity: 0.4; } }
+    .dep-details {
+      margin-top: 12px; padding: 12px;
+      background: var(--bg-input); border-radius: var(--radius);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; color: var(--text-dim);
+      line-height: 1.8; white-space: pre-wrap;
+    }
+    .dep-actions {
+      margin-top: 12px;
+      display: flex; gap: 8px;
+    }
+
+    /* ── Drop Zone ── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-lg);
+      padding: 48px 24px;
+      text-align: center;
+      transition: all 0.2s;
+      background: var(--bg-raised);
+    }
+    .drop-zone.dragging {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .drop-zone-icon {
+      color: var(--accent); opacity: 0.6;
+      margin-bottom: 14px;
+    }
+    .drop-zone-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .drop-zone-sub {
+      font-size: 12px; color: var(--text-muted); line-height: 1.6;
+      margin-bottom: 20px;
+    }
+    .drop-zone-buttons {
+      display: flex; gap: 10px; justify-content: center;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 8px 16px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      font-family: inherit; font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: all 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .btn-secondary { background: var(--bg-input); color: var(--text); }
+    .btn-secondary:hover { border-color: var(--border-hover); background: var(--bg-card); }
+    .btn-primary { background: var(--accent); color: #0c0e12; border-color: var(--accent); font-weight: 600; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-danger { background: transparent; color: var(--danger); border-color: rgba(248,113,113,0.3); }
+    .btn-danger:hover { background: rgba(248,113,113,0.08); }
+    .btn-text {
+      background: none; border: none; color: var(--text-muted);
+      font-family: inherit; font-size: 12px; cursor: pointer;
+      -webkit-app-region: no-drag;
+    }
+    .btn-text:hover { color: var(--danger); }
+
+    /* ── File List ── */
+    .file-list { margin-top: 16px; }
+    .file-list-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+    }
+    .file-list-stats { display: flex; gap: 6px; flex-wrap: wrap; }
+    .stat-chip {
+      font-size: 11px; font-weight: 500;
+      padding: 3px 8px; border-radius: 20px;
+      background: var(--bg-input); color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    .stat-chip.video { color: var(--video-color); border-color: rgba(247,129,102,0.25); }
+    .stat-chip.image { color: var(--image-color); border-color: rgba(167,139,250,0.25); }
+    .file-list-items {
+      max-height: 180px; overflow-y: auto;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--bg-raised);
+    }
+    .file-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .file-item:last-child { border-bottom: none; }
+    .file-icon { display: flex; opacity: 0.6; }
+    .file-icon.video { color: var(--video-color); }
+    .file-icon.image { color: var(--image-color); }
+    .file-name {
+      flex: 1; font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .file-path {
+      color: var(--text-muted); font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; max-width: 300px;
+    }
+    .file-size { color: var(--text-muted); font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+    .file-remove {
+      background: none; border: none; color: var(--text-muted);
+      cursor: pointer; padding: 2px; display: flex; border-radius: 4px;
+      -webkit-app-region: no-drag;
+    }
+    .file-remove:hover { color: var(--danger); background: rgba(248,113,113,0.1); }
+
+    /* ── Config ── */
+    .config-panel {
+      margin-top: 20px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+    }
+    .config-title {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted); margin-bottom: 16px;
+    }
+    .config-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .config-group label {
+      display: block; font-size: 13px; font-weight: 500; margin-bottom: 7px;
+    }
+    .label-hint { color: var(--text-muted); font-weight: 400; font-size: 11px; }
+    .radio-group { display: flex; gap: 5px; flex-wrap: wrap; }
+    .radio-btn {
+      padding: 5px 11px; border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-input); color: var(--text-dim);
+      font-family: inherit; font-size: 12px; font-weight: 500;
+      cursor: pointer; transition: all 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .radio-btn:hover { border-color: var(--border-hover); }
+    .radio-btn.active {
+      background: var(--accent-dim); color: var(--accent);
+      border-color: rgba(78,205,196,0.3);
+    }
+    .input-row { display: flex; align-items: center; gap: 10px; }
+    .input-row input[type="range"] {
+      flex: 1; accent-color: var(--accent);
+      -webkit-app-region: no-drag;
+    }
+    .input-row.dual { flex-wrap: wrap; }
+    .input-row.dual input[type="range"] { flex: 1; min-width: 60px; }
+    .range-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; font-weight: 500; color: var(--accent);
+      min-width: 36px; text-align: right;
+    }
+    .range-label { font-size: 11px; color: var(--text-muted); }
+    .num-input {
+      width: 100px; padding: 6px 10px;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: var(--bg-input); color: var(--text);
+      font-family: 'JetBrains Mono', monospace; font-size: 13px;
+      -webkit-app-region: no-drag;
+    }
+    .num-input:focus { outline: none; border-color: var(--accent); }
+
+    /* ── Output Dir ── */
+    .output-dir-row {
+      margin-top: 20px;
+      display: flex; align-items: center; gap: 12px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+    }
+    .output-dir-label {
+      font-size: 12px; font-weight: 600; color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .output-dir-path {
+      flex: 1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; color: var(--accent);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ── Estimate ── */
+    .estimate-bar {
+      margin-top: 16px; padding: 14px 20px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+    .estimate-label {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted); margin-bottom: 10px;
+    }
+    .estimate-stats { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .est-item { text-align: center; }
+    .est-num {
+      display: block; font-size: 20px; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace; color: var(--text);
+    }
+    .est-label { font-size: 11px; color: var(--text-muted); }
+    .est-sep { color: var(--text-muted); font-size: 16px; }
+    .est-item.highlight .est-num { color: var(--accent); }
+    .estimate-warn {
+      margin-top: 10px; font-size: 12px; color: var(--warn);
+      padding: 8px 12px; background: rgba(240,198,116,0.08);
+      border-radius: 6px; border: 1px solid rgba(240,198,116,0.15);
+    }
+
+    /* ── Action Bar ── */
+    .action-bar {
+      margin-top: 24px; padding-bottom: 24px;
+      display: flex; justify-content: flex-end; align-items: center; gap: 12px;
+    }
+
+    /* ── Processing ── */
+    .processing-view { padding-top: 8px; }
+    .proc-header {
+      display: flex; align-items: center; gap: 16px;
+      margin-bottom: 20px;
+    }
+    .proc-header h2 { font-size: 17px; }
+    .proc-file { font-size: 13px; color: var(--text-dim); margin-top: 3px; }
+    .proc-spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .progress-track {
+      height: 6px; background: var(--bg-input);
+      border-radius: 3px; overflow: hidden; margin-bottom: 16px;
+    }
+    .progress-fill {
+      height: 100%; background: var(--accent);
+      border-radius: 3px; transition: width 0.3s ease;
+    }
+
+    .log-window {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      height: calc(100vh - 280px);
+      min-height: 200px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; line-height: 1.7;
+    }
+    .log-line { color: var(--text-dim); padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+    .log-line.success { color: var(--success); }
+    .log-line.error { color: var(--danger); }
+    .log-line.info { color: var(--accent); }
+
+    .proc-actions {
+      margin-top: 16px; display: flex; gap: 10px; justify-content: flex-end;
+    }
+
+    /* ── Complete ── */
+    .complete-view { text-align: center; padding-top: 40px; }
+    .complete-icon {
+      width: 56px; height: 56px;
+      background: var(--accent-dim); color: var(--accent);
+      border-radius: 50%; margin: 0 auto 16px;
+      display: flex; align-items: center; justify-content: center;
+      border: 2px solid rgba(78,205,196,0.3);
+    }
+    .complete-view h2 { font-size: 20px; margin-bottom: 24px; }
+    .results-grid {
+      display: flex; gap: 14px; justify-content: center;
+      margin-bottom: 28px; flex-wrap: wrap;
+    }
+    .result-card {
+      background: var(--bg-raised); border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 24px; min-width: 130px;
+    }
+    .result-num {
+      display: block; font-size: 26px; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace; color: var(--accent);
+    }
+    .result-label { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+
+    .output-structure {
+      text-align: left; max-width: 480px; margin: 0 auto 24px;
+      background: var(--bg-raised); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px;
+    }
+    .output-structure h3 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted); margin-bottom: 10px;
+    }
+    .tree {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; color: var(--text-dim); line-height: 1.7;
+      white-space: pre;
+    }
+    .complete-actions { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+  </style>
+</head>
+<body>
+  <div class="app" id="app"></div>
+
+  <script>
+    // ── State ──
+    const state = {
+      view: "setup",           // setup | processing | complete
+      files: [],
+      config: {
+        sourceType: "360",
+        frameInterval: 30,
+        cropsPerFrame: 10,
+        trainingRes: 512,
+        conditioningRes: 512,
+        seed: 42,
+        fovMin: 60,
+        fovMax: 110,
+        horizonBias: 0.7,
+      },
+      outputDir: null,
+      depStatus: "checking",   // checking | ok | error
+      depError: null,
+      depDetails: null,
+      processing: false,
+      processLog: [],
+      processFile: null,
+      processFileIndex: -1,
+      results: null,
+    };
+
+    // ── Helpers ──
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+    }
+
+    function h(tag, attrs = {}, ...children) {
+      const el = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k === "className") el.className = v;
+        else if (k.startsWith("on")) el.addEventListener(k.slice(2).toLowerCase(), v);
+        else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
+        else el.setAttribute(k, v);
+      }
+      for (const child of children.flat()) {
+        if (child == null) continue;
+        el.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
+      }
+      return el;
+    }
+
+    // ── SVGs ──
+    function svgIcon(paths, size = 16) {
+      const ns = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(ns, "svg");
+      svg.setAttribute("width", size);
+      svg.setAttribute("height", size);
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("fill", "none");
+      svg.setAttribute("stroke", "currentColor");
+      svg.setAttribute("stroke-width", "1.5");
+      svg.setAttribute("stroke-linecap", "round");
+      svg.setAttribute("stroke-linejoin", "round");
+      svg.innerHTML = paths;
+      return svg;
+    }
+
+    const ICONS = {
+      sphere: () => svgIcon('<circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="4" ry="10"/><line x1="2" y1="12" x2="22" y2="12"/>', 20),
+      film: () => svgIcon('<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/>'),
+      image: () => svgIcon('<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),
+      folder: () => svgIcon('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>', 18),
+      x: () => svgIcon('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', 14),
+      check: () => { const s = svgIcon('<polyline points="20 6 9 17 4 12"/>', 16); s.setAttribute("stroke-width", "2.5"); return s; },
+      play: () => { const ns = "http://www.w3.org/2000/svg"; const svg = document.createElementNS(ns, "svg"); svg.setAttribute("width", "16"); svg.setAttribute("height", "16"); svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "currentColor"); svg.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>'; return svg; },
+      folderOpen: () => svgIcon('<path d="M5 19a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1"/><path d="M3 17l2.2-6.6A1 1 0 0 1 6.1 10H21a1 1 0 0 1 .9 1.4L19.5 17a2 2 0 0 1-1.8 1.2H5z"/>', 16),
+    };
+
+    // ── Render ──
+    function render() {
+      const app = document.getElementById("app");
+      app.innerHTML = "";
+
+      // Titlebar
+      const titlebar = h("div", { className: "titlebar" },
+        h("div", { className: "titlebar-icon" }, ICONS.sphere()),
+        h("h1", {}, "ControlNet Dataset Generator"),
+        h("span", { className: "titlebar-sub" }, "Light Sail VR"),
+      );
+      app.appendChild(titlebar);
+
+      const content = h("div", { className: "content" });
+
+      if (state.view === "setup") renderSetup(content);
+      else if (state.view === "processing") renderProcessing(content);
+      else if (state.view === "complete") renderComplete(content);
+
+      app.appendChild(content);
+    }
+
+    function renderSetup(container) {
+      // Dependency check
+      const depClass = state.depStatus === "ok" ? "ok" : state.depStatus === "error" ? "error" : "";
+      const depCheck = h("div", { className: `dep-check ${depClass}` });
+
+      const dotClass = state.depStatus === "checking" ? "checking" : state.depStatus === "ok" ? "ok" : "error";
+      const statusText = state.depStatus === "checking" ? "Checking dependencies..."
+        : state.depStatus === "ok" ? "All dependencies found — ready to generate"
+        : "Missing dependencies";
+
+      depCheck.appendChild(h("div", { className: "dep-status" },
+        h("span", { className: `dep-dot ${dotClass}` }),
+        h("span", {}, statusText),
+      ));
+
+      if (state.depStatus === "error" && state.depError) {
+        let instructions = "";
+        if (state.depError === "python3_not_found") {
+          instructions = "Python 3 was not found on your system.\n\nInstall via Homebrew:\n  brew install python@3.11\n\nOr download from python.org";
+        } else if (state.depError === "ffmpeg_not_found") {
+          instructions = "ffmpeg was not found on your system.\n\nInstall via Homebrew:\n  brew install ffmpeg";
+        } else if (state.depError === "packages_missing") {
+          instructions = "Required Python packages are missing.\n\nInstall them with:\n  pip3 install py360convert opencv-python-headless numpy Pillow";
+        }
+        depCheck.appendChild(h("div", { className: "dep-details" }, instructions));
+        depCheck.appendChild(h("div", { className: "dep-actions" },
+          h("button", { className: "btn btn-secondary", onClick: checkDeps }, "Re-check"),
+        ));
+      }
+
+      container.appendChild(depCheck);
+
+      // Drop zone
+      const dropZone = h("div", { className: "drop-zone" });
+      dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragging"); });
+      dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragging"));
+      dropZone.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("dragging");
+        // Electron drop gives us file paths
+        const paths = [...e.dataTransfer.files].map(f => f.path).filter(Boolean);
+        if (paths.length > 0) {
+          // For now just show we got them — real path handling is in main process
+          // We'll use the dialog-based approach as primary
+        }
+      });
+
+      dropZone.appendChild(h("div", { className: "drop-zone-icon" }, ICONS.sphere()));
+      dropZone.appendChild(h("p", { className: "drop-zone-title" }, "Select files or a folder to get started"));
+
+      const subP = h("p", { className: "drop-zone-sub" });
+      subP.innerHTML = "Video: MOV, MP4, MKV, AVI, MXF, R3D, BRAW, and more<br/>Image: JPG, PNG, TIFF, EXR, HDR, DPX";
+      dropZone.appendChild(subP);
+
+      dropZone.appendChild(h("div", { className: "drop-zone-buttons" },
+        h("button", { className: "btn btn-secondary", onClick: selectFiles }, ICONS.film(), " Select Files"),
+        h("button", { className: "btn btn-secondary", onClick: selectFolder }, ICONS.folder(), " Select Folder"),
+      ));
+
+      container.appendChild(dropZone);
+
+      if (state.files.length === 0) return;
+
+      // File list
+      renderFileList(container);
+
+      // Config
+      renderConfig(container);
+
+      // Output dir
+      renderOutputDir(container);
+
+      // Estimate
+      renderEstimate(container);
+
+      // Action bar
+      const canStart = state.depStatus === "ok" && state.files.length > 0 && state.outputDir;
+      const actionBar = h("div", { className: "action-bar" },
+        h("button", {
+          className: "btn btn-primary",
+          onClick: startProcessing,
+          ...(canStart ? {} : { disabled: "true" }),
+        }, ICONS.play(), " Generate Dataset"),
+      );
+      container.appendChild(actionBar);
+    }
+
+    function renderFileList(container) {
+      const videoCount = state.files.filter(f => f.type === "video").length;
+      const imageCount = state.files.filter(f => f.type === "image").length;
+      const totalSize = state.files.reduce((s, f) => s + f.size, 0);
+
+      const list = h("div", { className: "file-list" });
+      const header = h("div", { className: "file-list-header" },
+        h("div", { className: "file-list-stats" },
+          h("span", { className: "stat-chip" }, `${state.files.length} files`),
+          videoCount > 0 ? h("span", { className: "stat-chip video" }, `${videoCount} video`) : null,
+          imageCount > 0 ? h("span", { className: "stat-chip image" }, `${imageCount} image`) : null,
+          h("span", { className: "stat-chip" }, formatSize(totalSize)),
+        ),
+        h("button", { className: "btn-text", onClick: () => { state.files = []; render(); } }, "Clear all"),
+      );
+      list.appendChild(header);
+
+      const items = h("div", { className: "file-list-items" });
+      state.files.forEach((f, i) => {
+        const icon = h("span", { className: `file-icon ${f.type}` },
+          f.type === "video" ? ICONS.film() : ICONS.image(),
+        );
+        const item = h("div", { className: "file-item" },
+          icon,
+          h("span", { className: "file-name" }, f.name),
+          h("span", { className: "file-size" }, formatSize(f.size)),
+          h("button", { className: "file-remove", onClick: () => { state.files.splice(i, 1); render(); } }, ICONS.x()),
+        );
+        items.appendChild(item);
+      });
+      list.appendChild(items);
+      container.appendChild(list);
+    }
+
+    function renderConfig(container) {
+      const panel = h("div", { className: "config-panel" });
+      panel.appendChild(h("div", { className: "config-title" }, "Extraction Settings"));
+
+      const grid = h("div", { className: "config-grid" });
+
+      // Source Type
+      const sourceGroup = h("div", { className: "config-group" });
+      sourceGroup.appendChild(h("label", {}, "Source Type"));
+      const sourceRadios = h("div", { className: "radio-group" });
+      [["360", "360° Equirect"], ["180", "180° Equirect"], ["180sbs", "180° SBS Stereo"]].forEach(([val, label]) => {
+        sourceRadios.appendChild(h("button", {
+          className: `radio-btn ${state.config.sourceType === val ? "active" : ""}`,
+          onClick: () => { state.config.sourceType = val; render(); },
+        }, label));
+      });
+      sourceGroup.appendChild(sourceRadios);
+      grid.appendChild(sourceGroup);
+
+      // Frame Interval
+      grid.appendChild(makeSlider("Frame Interval", "extract every Nth frame", "frameInterval", 1, 120));
+
+      // Crops per Frame
+      grid.appendChild(makeSlider("Crops per Frame", "rectilinear extractions", "cropsPerFrame", 1, 30));
+
+      // Training Resolution
+      const resGroup = h("div", { className: "config-group" });
+      resGroup.appendChild(h("label", {}, "Training Resolution ", h("span", { className: "label-hint" }, "target equirect height")));
+      const resRadios = h("div", { className: "radio-group" });
+      [256, 512, 768, 1024].forEach(v => {
+        resRadios.appendChild(h("button", {
+          className: `radio-btn ${state.config.trainingRes === v ? "active" : ""}`,
+          onClick: () => { state.config.trainingRes = v; render(); },
+        }, `${v}px`));
+      });
+      resGroup.appendChild(resRadios);
+      grid.appendChild(resGroup);
+
+      // Conditioning Resolution
+      const condGroup = h("div", { className: "config-group" });
+      condGroup.appendChild(h("label", {}, "Conditioning Resolution ", h("span", { className: "label-hint" }, "rectilinear crop size")));
+      const condRadios = h("div", { className: "radio-group" });
+      [256, 512, 768, 1024].forEach(v => {
+        condRadios.appendChild(h("button", {
+          className: `radio-btn ${state.config.conditioningRes === v ? "active" : ""}`,
+          onClick: () => { state.config.conditioningRes = v; render(); },
+        }, `${v}px`));
+      });
+      condGroup.appendChild(condRadios);
+      grid.appendChild(condGroup);
+
+      // FOV Range
+      const fovGroup = h("div", { className: "config-group" });
+      fovGroup.appendChild(h("label", {}, "FOV Range ", h("span", { className: "label-hint" }, "simulated lens field of view")));
+      const fovRow = h("div", { className: "input-row dual" });
+      fovRow.appendChild(h("span", { className: "range-label" }, "Min"));
+      const fovMinSlider = h("input", { type: "range", min: "30", max: "120", value: String(state.config.fovMin) });
+      fovMinSlider.addEventListener("input", (e) => {
+        state.config.fovMin = Math.min(+e.target.value, state.config.fovMax - 5);
+        render();
+      });
+      fovRow.appendChild(fovMinSlider);
+      fovRow.appendChild(h("span", { className: "range-val" }, `${state.config.fovMin}°`));
+      fovRow.appendChild(h("span", { className: "range-label" }, "Max"));
+      const fovMaxSlider = h("input", { type: "range", min: "30", max: "120", value: String(state.config.fovMax) });
+      fovMaxSlider.addEventListener("input", (e) => {
+        state.config.fovMax = Math.max(+e.target.value, state.config.fovMin + 5);
+        render();
+      });
+      fovRow.appendChild(fovMaxSlider);
+      fovRow.appendChild(h("span", { className: "range-val" }, `${state.config.fovMax}°`));
+      fovGroup.appendChild(fovRow);
+      grid.appendChild(fovGroup);
+
+      // Horizon Bias
+      grid.appendChild(makeSlider("Horizon Bias", "% of crops near horizon (±15°)", "horizonBias", 0, 100, true));
+
+      // Seed
+      const seedGroup = h("div", { className: "config-group" });
+      seedGroup.appendChild(h("label", {}, "Random Seed ", h("span", { className: "label-hint" }, "for reproducibility")));
+      const seedInput = h("input", { className: "num-input", type: "number", value: String(state.config.seed) });
+      seedInput.addEventListener("change", (e) => { state.config.seed = +e.target.value; });
+      seedGroup.appendChild(seedInput);
+      grid.appendChild(seedGroup);
+
+      panel.appendChild(grid);
+      container.appendChild(panel);
+    }
+
+    function makeSlider(label, hint, key, min, max, isPercent = false) {
+      const group = h("div", { className: "config-group" });
+      group.appendChild(h("label", {}, `${label} `, h("span", { className: "label-hint" }, hint)));
+      const row = h("div", { className: "input-row" });
+      const displayVal = isPercent ? Math.round(state.config[key] * 100) : state.config[key];
+      const slider = h("input", { type: "range", min: String(min), max: String(max), value: String(displayVal) });
+      slider.addEventListener("input", (e) => {
+        state.config[key] = isPercent ? +e.target.value / 100 : +e.target.value;
+        render();
+      });
+      row.appendChild(slider);
+      row.appendChild(h("span", { className: "range-val" }, isPercent ? `${displayVal}%` : String(displayVal)));
+      group.appendChild(row);
+      return group;
+    }
+
+    function renderOutputDir(container) {
+      const row = h("div", { className: "output-dir-row" },
+        h("span", { className: "output-dir-label" }, "Output:"),
+        h("span", { className: "output-dir-path" }, state.outputDir || "No directory selected"),
+        h("button", { className: "btn btn-secondary", onClick: selectOutputDir }, ICONS.folderOpen(), " Choose"),
+      );
+      container.appendChild(row);
+    }
+
+    function renderEstimate(container) {
+      const videoCount = state.files.filter(f => f.type === "video").length;
+      const imageCount = state.files.filter(f => f.type === "image").length;
+      const estFramesPerVideo = Math.floor((30 * 60) / state.config.frameInterval);
+      const totalFrames = videoCount * estFramesPerVideo + imageCount;
+      const totalPairs = totalFrames * state.config.cropsPerFrame;
+
+      const bar = h("div", { className: "estimate-bar" });
+      bar.appendChild(h("div", { className: "estimate-label" }, "Estimated Output (assumes ~60s avg per video at 30fps)"));
+
+      const stats = h("div", { className: "estimate-stats" },
+        h("div", { className: "est-item" },
+          h("span", { className: "est-num" }, totalFrames.toLocaleString()),
+          h("span", { className: "est-label" }, "source frames"),
+        ),
+        h("div", { className: "est-sep" }, "×"),
+        h("div", { className: "est-item" },
+          h("span", { className: "est-num" }, String(state.config.cropsPerFrame)),
+          h("span", { className: "est-label" }, "crops each"),
+        ),
+        h("div", { className: "est-sep" }, "="),
+        h("div", { className: "est-item highlight" },
+          h("span", { className: "est-num" }, totalPairs.toLocaleString()),
+          h("span", { className: "est-label" }, "training pairs"),
+        ),
+      );
+      bar.appendChild(stats);
+
+      if (totalPairs < 5000) {
+        bar.appendChild(h("div", { className: "estimate-warn" },
+          "⚠ Minimum ~5,000 pairs recommended for ControlNet training. Add more source files or increase crops per frame."
+        ));
+      }
+
+      container.appendChild(bar);
+    }
+
+    function renderProcessing(container) {
+      const view = h("div", { className: "processing-view" });
+
+      const progress = state.processFileIndex >= 0
+        ? ((state.processFileIndex + 1) / state.files.length) * 100
+        : 2;
+
+      view.appendChild(h("div", { className: "proc-header" },
+        h("div", { className: "proc-spinner" }),
+        h("div", {},
+          h("h2", {}, "Generating Dataset"),
+          h("p", { className: "proc-file" },
+            state.processFile
+              ? `Processing: ${state.processFile} (${state.processFileIndex + 1}/${state.files.length})`
+              : "Initializing..."
+          ),
+        ),
+      ));
+
+      view.appendChild(h("div", { className: "progress-track" },
+        h("div", { className: "progress-fill", style: { width: `${progress}%` } }),
+      ));
+
+      const logWindow = h("div", { className: "log-window", id: "log-window" });
+      state.processLog.forEach((line) => {
+        let cls = "log-line";
+        if (line.includes("✓") || line.includes("COMPLETE")) cls += " success";
+        else if (line.includes("ERROR") || line.includes("[stderr]")) cls += " error";
+        else if (line.includes("===") || line.startsWith("[")) cls += " info";
+        logWindow.appendChild(h("div", { className: cls }, line));
+      });
+      view.appendChild(logWindow);
+
+      view.appendChild(h("div", { className: "proc-actions" },
+        h("button", { className: "btn btn-danger", onClick: cancelProcessing }, ICONS.x(), " Cancel"),
+      ));
+
+      container.appendChild(view);
+
+      // Auto-scroll log
+      requestAnimationFrame(() => {
+        const lw = document.getElementById("log-window");
+        if (lw) lw.scrollTop = lw.scrollHeight;
+      });
+    }
+
+    function renderComplete(container) {
+      const r = state.results || {};
+      const view = h("div", { className: "complete-view" });
+
+      const checkIcon = h("div", { className: "complete-icon" });
+      checkIcon.appendChild(ICONS.check());
+      view.appendChild(checkIcon);
+      view.appendChild(h("h2", {}, "Dataset Generation Complete"));
+
+      view.appendChild(h("div", { className: "results-grid" },
+        h("div", { className: "result-card" },
+          h("span", { className: "result-num" }, (r.total_pairs || 0).toLocaleString()),
+          h("span", { className: "result-label" }, "Training Pairs"),
+        ),
+        h("div", { className: "result-card" },
+          h("span", { className: "result-num" }, (r.total_frames || 0).toLocaleString()),
+          h("span", { className: "result-label" }, "Source Frames"),
+        ),
+        h("div", { className: "result-card" },
+          h("span", { className: "result-num" }, String(r.files_processed || 0)),
+          h("span", { className: "result-label" }, "Files Processed"),
+        ),
+      ));
+
+      const tree = h("div", { className: "output-structure" });
+      tree.appendChild(h("h3", {}, "Output Structure"));
+      tree.appendChild(h("pre", { className: "tree" },
+`${state.outputDir || "dataset"}/
+├── source_equirects/   (${r.total_frames || "?"} frames)
+├── conditioning/       (${r.total_pairs || "?"} rectilinear crops)
+├── target/             (${r.total_frames || "?"} resized equirects)
+├── metadata/           (${r.total_pairs || "?"} JSON sidecars)
+└── pairs.json          (master manifest)`
+      ));
+      view.appendChild(tree);
+
+      view.appendChild(h("div", { className: "complete-actions" },
+        h("button", { className: "btn btn-secondary", onClick: () => {
+          if (state.outputDir) window.api.openFolder(state.outputDir);
+        } }, ICONS.folderOpen(), " Open Output Folder"),
+        h("button", { className: "btn btn-primary", onClick: () => {
+          state.view = "setup";
+          state.files = [];
+          state.processLog = [];
+          state.results = null;
+          render();
+        } }, "Generate Another Dataset"),
+      ));
+
+      container.appendChild(view);
+    }
+
+    // ── Actions ──
+
+    async function selectFiles() {
+      const files = await window.api.selectFiles();
+      if (files.length > 0) {
+        // Deduplicate
+        const existing = new Set(state.files.map(f => f.path));
+        state.files.push(...files.filter(f => !existing.has(f.path)));
+        render();
+      }
+    }
+
+    async function selectFolder() {
+      const files = await window.api.selectFolder();
+      if (files.length > 0) {
+        const existing = new Set(state.files.map(f => f.path));
+        state.files.push(...files.filter(f => !existing.has(f.path)));
+        render();
+      }
+    }
+
+    async function selectOutputDir() {
+      const dir = await window.api.selectOutputDir();
+      if (dir) {
+        state.outputDir = dir;
+        render();
+      }
+    }
+
+    async function checkDeps() {
+      state.depStatus = "checking";
+      render();
+      const result = await window.api.checkDependencies();
+      state.depStatus = result.ok ? "ok" : "error";
+      state.depError = result.error || null;
+      state.depDetails = result.details || null;
+      render();
+    }
+
+    async function startProcessing() {
+      state.view = "processing";
+      state.processing = true;
+      state.processLog = [];
+      state.processFile = null;
+      state.processFileIndex = -1;
+      render();
+
+      const result = await window.api.startProcessing({
+        files: state.files,
+        config: state.config,
+        outputDir: state.outputDir,
+      });
+
+      if (!result.ok) {
+        state.processLog.push(`ERROR: ${result.error}`);
+        render();
+      }
+    }
+
+    async function cancelProcessing() {
+      await window.api.cancelProcessing();
+      state.view = "setup";
+      state.processing = false;
+      render();
+    }
+
+    // ── IPC Listeners ──
+
+    window.api.onProcessLog((line) => {
+      state.processLog.push(line);
+
+      // Parse progress from log lines
+      const fileMatch = line.match(/Processing: (.+)/);
+      if (fileMatch) {
+        state.processFile = fileMatch[1];
+      }
+      const indexMatch = line.match(/\[(\d+)\/(\d+)\]/);
+      if (indexMatch) {
+        state.processFileIndex = parseInt(indexMatch[1]) - 1;
+      }
+
+      render();
+    });
+
+    window.api.onProcessComplete(({ code, results }) => {
+      state.processing = false;
+      if (code === 0 && results) {
+        state.results = results;
+        state.view = "complete";
+      } else {
+        state.processLog.push(code === 0
+          ? "Processing finished (no results file found)"
+          : `Process exited with code ${code}`
+        );
+      }
+      render();
+    });
+
+    // ── Init ──
+    checkDeps();
+    render();
+  </script>
+</body>
+</html>
