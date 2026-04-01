@@ -18,4 +18,8 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("process-complete", handler);
     return () => ipcRenderer.removeListener("process-complete", handler);
   },
+  selectDatasetDir: () => ipcRenderer.invoke("select-dataset-dir"),
+  loadDataset: (dir) => ipcRenderer.invoke("load-dataset", dir),
+  generateThumbnails: (payload) => ipcRenderer.invoke("generate-thumbnails", payload),
+  deleteFrames: (payload) => ipcRenderer.invoke("delete-frames", payload),
 });

@@ -405,6 +405,218 @@
     }
     .complete-actions { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
 
+    /* ── Review View ── */
+    .review-view {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 52px - 48px);
+      position: relative;
+    }
+    .review-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .review-toolbar .btn-back {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 6px 10px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .review-toolbar .btn-back:hover { border-color: var(--border-hover); color: var(--text); }
+    .review-stats {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-right: auto;
+    }
+    .review-stats strong { color: var(--text); }
+    .review-toolbar .btn-sm {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 5px 10px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+    }
+    .review-toolbar .btn-sm:hover { border-color: var(--border-hover); color: var(--text); }
+
+    .review-grid-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 0;
+    }
+    .review-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 12px;
+    }
+    .review-cell {
+      background: var(--bg-card);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .review-cell:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+    .review-cell.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent), 0 0 12px var(--accent-glow);
+    }
+    .review-cell .thumb-wrapper {
+      width: 100%;
+      height: 100px;
+      background: var(--bg-input);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .review-cell .thumb-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .review-cell .thumb-placeholder {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(110deg, var(--bg-input) 30%, var(--bg-card) 50%, var(--bg-input) 70%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .review-cell .cell-info {
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+    }
+    .review-cell .frame-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .review-cell .pair-badge {
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--bg-input);
+      padding: 1px 5px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .review-cell .check-overlay {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 22px;
+      height: 22px;
+      background: var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--bg);
+      opacity: 0;
+      transform: scale(0.5);
+      transition: opacity 0.15s, transform 0.15s;
+    }
+    .review-cell.selected .check-overlay { opacity: 1; transform: scale(1); }
+
+    .review-selection-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--bg-raised);
+      border-top: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 10;
+    }
+    .review-selection-bar .sel-info {
+      font-size: 13px;
+      color: var(--text);
+      margin-right: auto;
+    }
+    .review-selection-bar .sel-info strong { color: var(--accent); }
+    .btn-danger {
+      background: var(--danger) !important;
+      color: #fff !important;
+      border: none !important;
+    }
+    .btn-danger:hover { filter: brightness(0.9); }
+
+    .review-modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .review-modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      max-width: 420px;
+      width: 90%;
+    }
+    .review-modal h3 { font-size: 16px; margin-bottom: 12px; }
+    .review-modal p { font-size: 13px; color: var(--text-dim); margin-bottom: 20px; line-height: 1.5; }
+    .review-modal .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+    .review-toast {
+      position: absolute;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-card);
+      border: 1px solid var(--success);
+      color: var(--success);
+      padding: 8px 16px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      z-index: 20;
+      animation: fadeInUp 0.3s ease;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    .review-loading-banner {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -440,6 +652,16 @@
       processFile: null,
       processFileIndex: -1,
       results: null,
+      // Review view
+      reviewDatasetDir: null,
+      reviewFrames: [],
+      reviewSelection: new Set(),
+      reviewLastClicked: null,
+      reviewLoading: false,
+      reviewTotalPairs: 0,
+      reviewTotalFrames: 0,
+      reviewShowModal: false,
+      reviewEntryPoint: "setup",
     };
 
     // ── Helpers ──
@@ -510,6 +732,7 @@
       if (state.view === "setup") renderSetup(content);
       else if (state.view === "processing") renderProcessing(content);
       else if (state.view === "complete") renderComplete(content);
+      else if (state.view === "review") renderReview(content);
 
       app.appendChild(content);
     }
@@ -571,6 +794,7 @@
       dropZone.appendChild(h("div", { className: "drop-zone-buttons" },
         h("button", { className: "btn btn-secondary", onClick: selectFiles }, ICONS.film(), " Select Files"),
         h("button", { className: "btn btn-secondary", onClick: selectFolder }, ICONS.folder(), " Select Folder"),
+        h("button", { className: "btn btn-secondary", onClick: reviewExistingDataset, style: { marginLeft: "8px", borderColor: "var(--accent-dim)", color: "var(--accent)" } }, ICONS.image(), " Review Existing Dataset"),
       ));
 
       container.appendChild(dropZone);
@@ -872,7 +1096,8 @@
         h("button", { className: "btn btn-secondary", onClick: () => {
           if (state.outputDir) window.api.openFolder(state.outputDir);
         } }, ICONS.folderOpen(), " Open Output Folder"),
-        h("button", { className: "btn btn-primary", onClick: () => {
+        h("button", { className: "btn btn-primary", onClick: () => openReviewFromComplete() }, ICONS.image(), " Review & Clean Dataset"),
+        h("button", { className: "btn btn-secondary", onClick: () => {
           state.view = "setup";
           state.files = [];
           state.processLog = [];
@@ -947,6 +1172,367 @@
       await window.api.cancelProcessing();
       state.view = "setup";
       state.processing = false;
+      render();
+    }
+
+    // ── Review View ──
+
+    let reviewObserver = null;
+    let thumbLoadDebounce = null;
+    let thumbsLoading = false;
+
+    function renderReview(container) {
+      const view = h("div", { className: "review-view" });
+
+      // Toolbar
+      const toolbar = h("div", { className: "review-toolbar" });
+      toolbar.appendChild(h("button", { className: "btn-back", onClick: () => {
+        state.view = state.reviewEntryPoint;
+        state.reviewFrames = [];
+        state.reviewSelection.clear();
+        render();
+      } }, "\u2190 Back"));
+
+      toolbar.appendChild(h("div", { className: "review-stats" },
+        h("strong", {}, `${state.reviewTotalFrames}`), ` frames \u00b7 `,
+        h("strong", {}, `${state.reviewTotalPairs}`), ` pairs`,
+      ));
+
+      toolbar.appendChild(h("button", { className: "btn-sm", onClick: () => {
+        state.reviewFrames.forEach(f => state.reviewSelection.add(f.name));
+        updateReviewSelectionUI();
+      } }, "Select All"));
+
+      toolbar.appendChild(h("button", { className: "btn-sm", onClick: () => {
+        state.reviewSelection.clear();
+        updateReviewSelectionUI();
+      } }, "Select None"));
+
+      toolbar.appendChild(h("button", { className: "btn-sm", onClick: () => {
+        state.reviewFrames.forEach(f => {
+          if (state.reviewSelection.has(f.name)) state.reviewSelection.delete(f.name);
+          else state.reviewSelection.add(f.name);
+        });
+        updateReviewSelectionUI();
+      } }, "Invert"));
+
+      view.appendChild(toolbar);
+
+      // Grid
+      if (state.reviewLoading) {
+        view.appendChild(h("div", { className: "review-loading-banner" }, "Loading dataset\u2026"));
+      } else if (state.reviewFrames.length === 0) {
+        view.appendChild(h("div", { className: "review-loading-banner" }, "No frames found in this dataset."));
+      } else {
+        const gridContainer = h("div", { className: "review-grid-container", id: "review-grid-container" });
+        const grid = h("div", { className: "review-grid", id: "review-grid" });
+
+        state.reviewFrames.forEach((frame, i) => {
+          const isSelected = state.reviewSelection.has(frame.name);
+          const cell = h("div", {
+            className: `review-cell${isSelected ? " selected" : ""}`,
+            "data-frame": frame.name,
+            "data-index": String(i),
+            onClick: (e) => handleCellClick(frame.name, i, e),
+          });
+
+          // Checkmark overlay
+          const checkOverlay = h("div", { className: "check-overlay" });
+          checkOverlay.appendChild(ICONS.check());
+          cell.appendChild(checkOverlay);
+
+          // Thumbnail
+          const thumbWrapper = h("div", { className: "thumb-wrapper" });
+          if (frame.thumb) {
+            thumbWrapper.appendChild(h("img", { className: "thumb-img", src: frame.thumb, alt: frame.name, draggable: "false" }));
+          } else {
+            thumbWrapper.appendChild(h("div", { className: "thumb-placeholder", "data-thumb-name": frame.name }));
+          }
+          cell.appendChild(thumbWrapper);
+
+          // Info
+          cell.appendChild(h("div", { className: "cell-info" },
+            h("span", { className: "frame-label", title: frame.name }, frame.name),
+            h("span", { className: "pair-badge" }, `${frame.pairCount}`),
+          ));
+
+          grid.appendChild(cell);
+        });
+
+        gridContainer.appendChild(grid);
+
+        // Adjust grid bottom padding when selection bar is visible
+        if (state.reviewSelection.size > 0) {
+          gridContainer.style.paddingBottom = "70px";
+        }
+
+        view.appendChild(gridContainer);
+      }
+
+      // Selection bar
+      if (state.reviewSelection.size > 0) {
+        const selectedPairs = state.reviewFrames
+          .filter(f => state.reviewSelection.has(f.name))
+          .reduce((sum, f) => sum + f.pairCount, 0);
+
+        view.appendChild(h("div", { className: "review-selection-bar" },
+          h("div", { className: "sel-info" },
+            h("strong", {}, `${state.reviewSelection.size}`), ` frame${state.reviewSelection.size > 1 ? "s" : ""} selected \u00b7 `,
+            h("strong", {}, `${selectedPairs}`), ` conditioning pair${selectedPairs !== 1 ? "s" : ""}`,
+          ),
+          h("button", { className: "btn btn-secondary", onClick: () => {
+            state.reviewSelection.clear();
+            render();
+          } }, "Cancel"),
+          h("button", { className: "btn btn-danger", onClick: () => {
+            state.reviewShowModal = true;
+            render();
+          } }, `Delete Selected`),
+        ));
+      }
+
+      // Delete confirmation modal
+      if (state.reviewShowModal) {
+        const selectedPairs = state.reviewFrames
+          .filter(f => state.reviewSelection.has(f.name))
+          .reduce((sum, f) => sum + f.pairCount, 0);
+
+        const overlay = h("div", { className: "review-modal-overlay", onClick: (e) => {
+          if (e.target === e.currentTarget) { state.reviewShowModal = false; render(); }
+        } });
+        const modal = h("div", { className: "review-modal" });
+        modal.appendChild(h("h3", {}, "Delete Frames"));
+        modal.appendChild(h("p", {},
+          `Remove ${state.reviewSelection.size} frame${state.reviewSelection.size > 1 ? "s" : ""} and ${selectedPairs} associated conditioning pair${selectedPairs !== 1 ? "s" : ""}? This will delete the target images, conditioning crops, metadata files, and source equirects. This cannot be undone.`
+        ));
+        modal.appendChild(h("div", { className: "modal-actions" },
+          h("button", { className: "btn btn-secondary", onClick: () => {
+            state.reviewShowModal = false;
+            render();
+          } }, "Cancel"),
+          h("button", { className: "btn btn-danger", onClick: () => executeDelete() }, "Delete"),
+        ));
+        overlay.appendChild(modal);
+        view.appendChild(overlay);
+      }
+
+      container.appendChild(view);
+
+      // Set up thumbnail lazy loading after DOM is built
+      requestAnimationFrame(() => setupThumbObserver());
+    }
+
+    function setupThumbObserver() {
+      // Clean up previous observer
+      if (reviewObserver) reviewObserver.disconnect();
+
+      const container = document.getElementById("review-grid-container");
+      if (!container) return;
+
+      const pendingFrames = new Set();
+
+      reviewObserver = new IntersectionObserver((entries) => {
+        let needsLoad = false;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const name = entry.target.getAttribute("data-thumb-name");
+            if (name) {
+              pendingFrames.add(name);
+              needsLoad = true;
+            }
+          }
+        }
+        if (needsLoad) {
+          clearTimeout(thumbLoadDebounce);
+          thumbLoadDebounce = setTimeout(() => {
+            loadThumbnails([...pendingFrames]);
+            pendingFrames.clear();
+          }, 100);
+        }
+      }, { root: container, rootMargin: "200px" });
+
+      // Observe all placeholders
+      const placeholders = container.querySelectorAll("[data-thumb-name]");
+      placeholders.forEach(el => reviewObserver.observe(el));
+    }
+
+    async function loadThumbnails(frameNames) {
+      if (thumbsLoading || frameNames.length === 0) return;
+      thumbsLoading = true;
+
+      // Process in batches of 30
+      for (let i = 0; i < frameNames.length; i += 30) {
+        const batch = frameNames.slice(i, i + 30);
+        try {
+          const { thumbnails } = await window.api.generateThumbnails({
+            datasetDir: state.reviewDatasetDir,
+            frameNames: batch,
+          });
+
+          // Update state and DOM directly (no full re-render)
+          for (const [name, dataUri] of Object.entries(thumbnails)) {
+            const frame = state.reviewFrames.find(f => f.name === name);
+            if (frame) frame.thumb = dataUri;
+
+            // Replace placeholder with img directly in DOM
+            const placeholder = document.querySelector(`[data-thumb-name="${name}"]`);
+            if (placeholder) {
+              const img = h("img", { className: "thumb-img", src: dataUri, alt: name, draggable: "false" });
+              placeholder.parentNode.replaceChild(img, placeholder);
+            }
+          }
+        } catch (err) {
+          console.error("Thumbnail load error:", err);
+        }
+      }
+
+      thumbsLoading = false;
+    }
+
+    function handleCellClick(frameName, index, event) {
+      if (event.shiftKey && state.reviewLastClicked !== null) {
+        // Range select
+        const lastIndex = state.reviewFrames.findIndex(f => f.name === state.reviewLastClicked);
+        if (lastIndex >= 0) {
+          const start = Math.min(lastIndex, index);
+          const end = Math.max(lastIndex, index);
+          for (let i = start; i <= end; i++) {
+            state.reviewSelection.add(state.reviewFrames[i].name);
+          }
+        }
+      } else {
+        // Toggle: click on/off, no clearing of others
+        if (state.reviewSelection.has(frameName)) {
+          state.reviewSelection.delete(frameName);
+        } else {
+          state.reviewSelection.add(frameName);
+        }
+      }
+
+      state.reviewLastClicked = frameName;
+      updateReviewSelectionUI();
+    }
+
+    // Update selection visuals in-place without full re-render (preserves scroll)
+    function updateReviewSelectionUI() {
+      // Update cell selected states
+      const cells = document.querySelectorAll(".review-cell");
+      cells.forEach(cell => {
+        const name = cell.getAttribute("data-frame");
+        if (state.reviewSelection.has(name)) {
+          cell.classList.add("selected");
+        } else {
+          cell.classList.remove("selected");
+        }
+      });
+
+      // Update selection bar
+      const existingBar = document.querySelector(".review-selection-bar");
+      if (existingBar) existingBar.remove();
+
+      const existingModal = document.querySelector(".review-modal-overlay");
+      if (existingModal) existingModal.remove();
+
+      const view = document.querySelector(".review-view");
+      const gridContainer = document.getElementById("review-grid-container");
+      if (!view || !gridContainer) return;
+
+      if (state.reviewSelection.size > 0) {
+        gridContainer.style.paddingBottom = "70px";
+
+        const selectedPairs = state.reviewFrames
+          .filter(f => state.reviewSelection.has(f.name))
+          .reduce((sum, f) => sum + f.pairCount, 0);
+
+        const bar = h("div", { className: "review-selection-bar" },
+          h("div", { className: "sel-info" },
+            h("strong", {}, `${state.reviewSelection.size}`), ` frame${state.reviewSelection.size > 1 ? "s" : ""} selected \u00b7 `,
+            h("strong", {}, `${selectedPairs}`), ` conditioning pair${selectedPairs !== 1 ? "s" : ""}`,
+          ),
+          h("button", { className: "btn btn-secondary", onClick: () => {
+            state.reviewSelection.clear();
+            updateReviewSelectionUI();
+          } }, "Cancel"),
+          h("button", { className: "btn btn-danger", onClick: () => {
+            state.reviewShowModal = true;
+            render();
+          } }, "Delete Selected"),
+        );
+        view.appendChild(bar);
+      } else {
+        gridContainer.style.paddingBottom = "0";
+      }
+    }
+
+    async function executeDelete() {
+      state.reviewShowModal = false;
+      const framesToDelete = [...state.reviewSelection];
+
+      const result = await window.api.deleteFrames({
+        datasetDir: state.reviewDatasetDir,
+        frameNames: framesToDelete,
+      });
+
+      if (result.ok) {
+        // Remove deleted frames from state
+        const deletedSet = new Set(framesToDelete);
+        state.reviewFrames = state.reviewFrames.filter(f => !deletedSet.has(f.name));
+        state.reviewSelection.clear();
+        state.reviewLastClicked = null;
+        state.reviewTotalFrames = result.remainingFrames;
+        state.reviewTotalPairs = result.remainingPairs;
+        render();
+
+        // Show toast
+        const view = document.querySelector(".review-view");
+        if (view) {
+          const toast = h("div", { className: "review-toast" },
+            `Removed ${result.deletedFrames} frame${result.deletedFrames > 1 ? "s" : ""} and ${result.deletedPairs} pairs`
+          );
+          view.appendChild(toast);
+          setTimeout(() => toast.remove(), 3000);
+        }
+      } else {
+        alert("Delete failed: " + (result.error || "Unknown error"));
+      }
+    }
+
+    async function reviewExistingDataset() {
+      const result = await window.api.selectDatasetDir();
+      if (!result || result.error) {
+        if (result && result.message) alert(result.message);
+        return;
+      }
+      state.reviewEntryPoint = "setup";
+      await loadReviewDataset(result.path);
+    }
+
+    async function openReviewFromComplete() {
+      if (!state.outputDir) return;
+      state.reviewEntryPoint = "complete";
+      await loadReviewDataset(state.outputDir);
+    }
+
+    async function loadReviewDataset(dir) {
+      state.reviewDatasetDir = dir;
+      state.reviewLoading = true;
+      state.reviewFrames = [];
+      state.reviewSelection.clear();
+      state.reviewLastClicked = null;
+      state.view = "review";
+      render();
+
+      const result = await window.api.loadDataset(dir);
+      state.reviewLoading = false;
+
+      if (result.ok) {
+        state.reviewFrames = result.frames;
+        state.reviewTotalPairs = result.totalPairs;
+        state.reviewTotalFrames = result.totalFrames;
+      } else {
+        alert("Failed to load dataset: " + (result.error || "Unknown error"));
+        state.view = state.reviewEntryPoint;
+      }
       render();
     }
 

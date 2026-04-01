@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -275,4 +275,181 @@ ipcMain.handle("cancel-processing", async () => {
 
 ipcMain.handle("open-folder", async (event, folderPath) => {
   shell.openPath(folderPath);
+});
+
+// ─── Dataset Review ───
+
+ipcMain.handle("select-dataset-dir", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Select Dataset Directory",
+    properties: ["openDirectory"],
+  });
+
+  if (result.canceled) return null;
+
+  const dir = result.filePaths[0];
+  const pairsPath = path.join(dir, "pairs.json");
+  if (!fs.existsSync(pairsPath)) {
+    return { error: "no_pairs_json", message: "Selected folder does not contain a pairs.json manifest." };
+  }
+  return { ok: true, path: dir };
+});
+
+ipcMain.handle("load-dataset", async (event, dir) => {
+  try {
+    const pairsPath = path.join(dir, "pairs.json");
+    const manifest = JSON.parse(fs.readFileSync(pairsPath, "utf-8"));
+
+    // Group pairs by source_frame to get unique frames
+    const frameMap = new Map();
+    for (const pair of manifest.pairs) {
+      const name = pair.source_frame;
+      if (!frameMap.has(name)) {
+        frameMap.set(name, { name, pairCount: 0, sourceFile: pair.source_file });
+      }
+      frameMap.get(name).pairCount++;
+    }
+
+    const frames = [];
+    for (const [name, info] of frameMap) {
+      const targetPath = path.join(dir, "target", `${name}.png`);
+      if (fs.existsSync(targetPath)) {
+        frames.push({
+          name,
+          targetPath,
+          pairCount: info.pairCount,
+          sourceFile: info.sourceFile,
+        });
+      }
+    }
+
+    return {
+      ok: true,
+      frames,
+      totalPairs: manifest.total_pairs || manifest.pairs.length,
+      totalFrames: frames.length,
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("generate-thumbnails", async (event, { datasetDir, frameNames }) => {
+  const thumbDir = path.join(datasetDir, ".thumbs");
+  if (!fs.existsSync(thumbDir)) {
+    fs.mkdirSync(thumbDir, { recursive: true });
+  }
+
+  const thumbnails = {};
+  for (const name of frameNames) {
+    const cachedPath = path.join(thumbDir, `${name}.jpg`);
+
+    // Check cache first
+    if (fs.existsSync(cachedPath)) {
+      const buf = fs.readFileSync(cachedPath);
+      thumbnails[name] = `data:image/jpeg;base64,${buf.toString("base64")}`;
+      continue;
+    }
+
+    // Generate thumbnail from target image
+    const targetPath = path.join(datasetDir, "target", `${name}.png`);
+    if (!fs.existsSync(targetPath)) continue;
+
+    try {
+      const img = nativeImage.createFromPath(targetPath);
+      if (img.isEmpty()) continue;
+      const thumb = img.resize({ height: 150 });
+      const jpegBuf = thumb.toJPEG(70);
+      fs.writeFileSync(cachedPath, jpegBuf);
+      thumbnails[name] = `data:image/jpeg;base64,${jpegBuf.toString("base64")}`;
+    } catch (err) {
+      console.error(`Thumbnail error for ${name}:`, err);
+    }
+  }
+
+  return { thumbnails };
+});
+
+ipcMain.handle("delete-frames", async (event, { datasetDir, frameNames }) => {
+  try {
+    const pairsPath = path.join(datasetDir, "pairs.json");
+    const manifest = JSON.parse(fs.readFileSync(pairsPath, "utf-8"));
+
+    const framesToDelete = new Set(frameNames);
+    const pairsToDelete = [];
+    const pairsToKeep = [];
+
+    for (const pair of manifest.pairs) {
+      if (framesToDelete.has(pair.source_frame)) {
+        pairsToDelete.push(pair);
+      } else {
+        pairsToKeep.push(pair);
+      }
+    }
+
+    // Delete conditioning images and metadata
+    for (const pair of pairsToDelete) {
+      const condPath = path.join(datasetDir, pair.conditioning);
+      const metaPath = path.join(datasetDir, pair.metadata);
+      try { fs.unlinkSync(condPath); } catch {}
+      try { fs.unlinkSync(metaPath); } catch {}
+    }
+
+    // Delete target images, source equirects, and thumbnails
+    const deletedSourceDirs = new Set();
+    for (const name of frameNames) {
+      // Target
+      try { fs.unlinkSync(path.join(datasetDir, "target", `${name}.png`)); } catch {}
+
+      // Thumbnail cache
+      try { fs.unlinkSync(path.join(datasetDir, ".thumbs", `${name}.jpg`)); } catch {}
+
+      // Source equirect — find the matching pair to get source_file info
+      const samplePair = pairsToDelete.find(p => p.source_frame === name);
+      if (samplePair && samplePair.source_file) {
+        const videoStem = path.parse(samplePair.source_file).name;
+        const sourceDir = path.join(datasetDir, "source_equirects", videoStem);
+        // The frame file in source_equirects is the part after the video stem prefix
+        const frameSuffix = name.startsWith(videoStem + "_") ? name.slice(videoStem.length + 1) : name;
+        const sourceFile = path.join(sourceDir, `${frameSuffix}.png`);
+        try { fs.unlinkSync(sourceFile); } catch {}
+        deletedSourceDirs.add(sourceDir);
+      }
+    }
+
+    // Clean up empty source_equirects subdirectories
+    for (const dir of deletedSourceDirs) {
+      try {
+        const remaining = fs.readdirSync(dir);
+        if (remaining.length === 0) fs.rmdirSync(dir);
+      } catch {}
+    }
+
+    // Update manifest
+    manifest.pairs = pairsToKeep;
+    manifest.total_pairs = pairsToKeep.length;
+    // Count remaining unique frames
+    const remainingFrames = new Set(pairsToKeep.map(p => p.source_frame));
+    manifest.total_frames = remainingFrames.size;
+    fs.writeFileSync(pairsPath, JSON.stringify(manifest, null, 2));
+
+    // Update generation_results.json
+    const resultsPath = path.join(datasetDir, "generation_results.json");
+    try {
+      const results = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+      results.total_pairs = pairsToKeep.length;
+      results.total_frames = remainingFrames.size;
+      fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
+    } catch {}
+
+    return {
+      ok: true,
+      deletedFrames: frameNames.length,
+      deletedPairs: pairsToDelete.length,
+      remainingFrames: remainingFrames.size,
+      remainingPairs: pairsToKeep.length,
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
