@@ -361,11 +361,30 @@ def process_files(file_paths: list[str], config: dict, output_dir: str):
     log(f"  Output:         {output_dir}")
     log(f"{'=' * 60}\n")
 
+    # Load existing manifest if appending to a previous dataset
+    existing_frames = set()
     pairs_manifest = []
-    total_frames = 0
-    total_crops = 0
-    files_processed = 0
-    global_frame_idx = 0
+    existing_pairs = 0
+    existing_files = 0
+    manifest_path = output_dir / "pairs.json"
+    if manifest_path.exists():
+        try:
+            with open(manifest_path, "r") as f:
+                prev = json.load(f)
+            pairs_manifest = prev.get("pairs", [])
+            existing_pairs = len(pairs_manifest)
+            existing_frames = {p["source_frame"] for p in pairs_manifest}
+            existing_files = prev.get("files_processed", 0)
+            log(f"  Found existing dataset with {existing_pairs} pairs "
+                f"({len(existing_frames)} frames) — appending")
+        except (json.JSONDecodeError, KeyError) as e:
+            log(f"  WARNING: Could not read existing pairs.json ({e}), starting fresh")
+            pairs_manifest = []
+
+    total_frames = len(existing_frames)
+    total_crops = existing_pairs
+    files_processed = existing_files
+    global_frame_idx = len(existing_frames)
     start_time = time.time()
 
     for file_idx, file_path in enumerate(file_paths):
@@ -398,8 +417,12 @@ def process_files(file_paths: list[str], config: dict, output_dir: str):
             frame_paths = extract_frames_ffmpeg(str(fp), str(video_source_dir), frame_interval)
             log(f"  Extracted {len(frame_paths)} frames")
 
+            skipped = 0
             for local_idx, frame_path in enumerate(frame_paths):
                 frame_name = f"{fp.stem}_{Path(frame_path).stem}"
+                if frame_name in existing_frames:
+                    skipped += 1
+                    continue
                 equirect = cv2.imread(frame_path, cv2.IMREAD_COLOR)
                 if equirect is None:
                     continue
@@ -409,6 +432,7 @@ def process_files(file_paths: list[str], config: dict, output_dir: str):
                     equirect_rgb, frame_name, fp.name,
                     config, dirs, global_frame_idx, pairs_manifest
                 )
+                existing_frames.add(frame_name)
                 total_crops += count
                 total_frames += 1
                 global_frame_idx += 1
@@ -418,6 +442,8 @@ def process_files(file_paths: list[str], config: dict, output_dir: str):
                     log(f"    [{local_idx + 1}/{len(frame_paths)}] {count} crops | "
                         f"Total: {total_crops} pairs | "
                         f"Elapsed: {elapsed:.0f}s")
+            if skipped:
+                log(f"  Skipped {skipped} frames already in dataset")
 
             files_processed += 1
             log(f"  ✓ {fp.name} complete")
@@ -437,10 +463,14 @@ def process_files(file_paths: list[str], config: dict, output_dir: str):
                 cv2.imwrite(str(source_dest), cv2.cvtColor(equirect_rgb, cv2.COLOR_RGB2BGR))
 
             frame_name = fp.stem
+            if frame_name in existing_frames:
+                log(f"  Skipped (already in dataset)")
+                continue
             count = process_equirect_frame(
                 equirect_rgb, frame_name, fp.name,
                 config, dirs, global_frame_idx, pairs_manifest
             )
+            existing_frames.add(frame_name)
             total_crops += count
             total_frames += 1
             global_frame_idx += 1
@@ -451,7 +481,8 @@ def process_files(file_paths: list[str], config: dict, output_dir: str):
             log(f"  Skipping unsupported format: {ext}")
 
     # ── Write manifest ──
-    log(f"\nWriting pairs manifest...")
+    new_pairs = len(pairs_manifest) - existing_pairs
+    log(f"\nWriting pairs manifest ({new_pairs} new, {len(pairs_manifest)} total)...")
     manifest_data = {
         "generator": "equirect_dataset_generator.py",
         "total_pairs": len(pairs_manifest),
@@ -462,7 +493,6 @@ def process_files(file_paths: list[str], config: dict, output_dir: str):
         "config": config,
         "pairs": pairs_manifest,
     }
-    manifest_path = output_dir / "pairs.json"
     with open(manifest_path, "w") as f:
         json.dump(manifest_data, f, indent=2)
 
