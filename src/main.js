@@ -458,6 +458,43 @@ ipcMain.handle("delete-frames", async (event, { datasetDir, frameNames }) => {
 
 let trainingProcess = null;
 
+ipcMain.handle("install-training-deps", async () => {
+  const pythonPath = findPython();
+  if (!pythonPath) return { ok: false, error: "Python 3 not found" };
+
+  // Determine which requirements file to use
+  const isMac = process.platform === "darwin";
+  const reqFile = isMac ? "requirements_mac.txt" : "requirements_nvidia.txt";
+  const reqPath = path.join(__dirname, "..", "train", reqFile);
+
+  if (!fs.existsSync(reqPath)) {
+    return { ok: false, error: `Requirements file not found: ${reqFile}` };
+  }
+
+  const proc = spawn(pythonPath, ["-m", "pip", "install", "-r", reqPath], {
+    env: { ...process.env, PYTHONUNBUFFERED: "1" },
+  });
+
+  proc.stdout.on("data", (data) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      mainWindow?.webContents.send("training-log", line);
+    }
+  });
+  proc.stderr.on("data", (data) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      mainWindow?.webContents.send("training-log", line);
+    }
+  });
+
+  return new Promise((resolve) => {
+    proc.on("close", (code) => {
+      resolve({ ok: code === 0, error: code !== 0 ? `pip exited with code ${code}` : null });
+    });
+  });
+});
+
 ipcMain.handle("detect-hardware", async () => {
   const pythonPath = findPython();
   if (!pythonPath) return { ok: false, error: "python3_not_found" };

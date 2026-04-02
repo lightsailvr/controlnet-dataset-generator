@@ -382,10 +382,11 @@ def main():
         hw = detect_hardware()
         preset_name = hw.get("preset")
         if not preset_name:
-            print(json.dumps({
-                "type": "error",
-                "message": "Could not auto-detect hardware. Use --preset to specify."
-            }), flush=True)
+            error_msg = "Could not auto-detect hardware. Use --preset to specify."
+            print(json.dumps({"type": "error", "message": error_msg}), flush=True)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+                _write_progress(output_dir, status="error", error_message=error_msg)
             sys.exit(1)
         print(json.dumps({
             "type": "log",
@@ -414,10 +415,11 @@ def main():
     if not check_simpletuner():
         preset = get_preset(preset_name)
         req_file = "requirements_mac.txt" if preset["platform"] == "mps" else "requirements_nvidia.txt"
-        print(json.dumps({
-            "type": "error",
-            "message": f"SimpleTuner is not installed. Run: pip3 install -r train/{req_file}"
-        }), flush=True)
+        error_msg = f"SimpleTuner is not installed. Run: pip3 install -r train/{req_file}"
+        print(json.dumps({"type": "error", "message": error_msg}), flush=True)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            _write_progress(output_dir, status="error", error_message=error_msg)
         sys.exit(1)
 
     success = run_training(dataset_dir, preset_name, overrides, output_dir)

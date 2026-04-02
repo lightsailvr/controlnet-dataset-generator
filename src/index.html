@@ -724,6 +724,8 @@
       trainLog: [],
       trainLogVisible: false,
       trainEntryPoint: "setup",
+      trainDatasetPairs: 0,
+      trainDatasetFrames: 0,
     };
 
     // ── Helpers ──
@@ -1623,10 +1625,31 @@
         } }, "\u2190 Back"),
       ));
 
+      // Error banner from previous failed training attempt
+      const lastError = [...state.trainLog].reverse().find(e => e && e.type === "error");
+      if (lastError) {
+        const banner = h("div", { className: "train-section", style: { borderColor: "rgba(248,113,113,0.4)", background: "rgba(248,113,113,0.06)" } },
+          h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+            h("span", { className: "dep-dot error" }),
+            h("span", { style: { color: "var(--danger)", fontSize: "13px", fontWeight: "500" } }, "Training failed"),
+          ),
+          h("div", { style: { marginTop: "8px", fontSize: "12px", color: "var(--text-dim)", fontFamily: "'JetBrains Mono', monospace", whiteSpace: "pre-wrap" } },
+            lastError.message || String(lastError)
+          ),
+          h("div", { style: { marginTop: "8px" } },
+            h("button", { className: "btn-text", style: { color: "var(--text-muted)" }, onClick: () => {
+              state.trainLog = [];
+              render();
+            } }, "Dismiss"),
+          ),
+        );
+        view.appendChild(banner);
+      }
+
       // Hardware detection
       const hwSection = h("div", { className: "train-section" });
       hwSection.appendChild(h("h3", {}, "Hardware"));
-      const dotClass = state.trainDepStatus === "ok" ? "ok" : state.trainDepStatus === "error" ? "error" : "checking";
+      const dotClass = state.trainDepStatus === "ok" ? "ok" : state.trainDepStatus === "error" ? "error" : state.trainDepStatus === "installing" ? "checking" : "checking";
       hwSection.appendChild(h("div", { className: "train-hw-card" },
         h("span", { className: `dep-dot ${dotClass}` }),
         h("div", {},
@@ -1636,15 +1659,28 @@
               : "Detecting hardware..."
           ),
           h("div", { className: "hw-detail" },
-            state.trainPreset
-              ? `Preset: ${state.trainPreset} \u00b7 SimpleTuner`
-              : "Checking dependencies..."
+            state.trainDepStatus === "installing"
+              ? "Installing training dependencies..."
+              : state.trainPreset
+                ? `Preset: ${state.trainPreset} \u00b7 SimpleTuner`
+                : "Checking dependencies..."
           ),
         ),
       ));
-      if (state.trainDepStatus === "error") {
+      if (state.trainDepStatus === "error" || state.trainDepStatus === "installing") {
+        const isInstalling = state.trainDepStatus === "installing";
         hwSection.appendChild(h("div", { className: "dep-details", style: { marginTop: "10px" } },
-          "SimpleTuner is not installed. See train/requirements_mac.txt or train/requirements_nvidia.txt"
+          isInstalling
+            ? "Installing SimpleTuner and dependencies... This may take a few minutes."
+            : "SimpleTuner and training dependencies are not installed."
+        ));
+        hwSection.appendChild(h("div", { className: "dep-actions", style: { marginTop: "8px" } },
+          h("button", {
+            className: "btn btn-primary",
+            onClick: installTrainingDeps,
+            ...(isInstalling ? { disabled: "true" } : {}),
+          }, isInstalling ? "Installing..." : "Install Training Dependencies"),
+          isInstalling ? null : h("button", { className: "btn btn-secondary", style: { marginLeft: "8px" }, onClick: () => { detectTrainHardware().then(() => render()); } }, "Re-check"),
         ));
       }
       view.appendChild(hwSection);
@@ -1720,6 +1756,30 @@
       valGroup.appendChild(valInput);
       grid.appendChild(valGroup);
 
+      // Batch size
+      const bsGroup = h("div", { className: "config-group" });
+      bsGroup.appendChild(h("label", {}, "Batch Size ", h("span", { className: "label-hint" }, "per device")));
+      const bsRow = h("div", { className: "input-row" });
+      const bsVal = state.trainConfig.train_batch_size || 1;
+      const bsSlider = h("input", { type: "range", min: "1", max: "8", value: String(bsVal) });
+      bsSlider.addEventListener("input", (e) => { state.trainConfig.train_batch_size = +e.target.value; render(); });
+      bsRow.appendChild(bsSlider);
+      bsRow.appendChild(h("span", { className: "range-val" }, String(bsVal)));
+      bsGroup.appendChild(bsRow);
+      grid.appendChild(bsGroup);
+
+      // Gradient accumulation
+      const gaGroup = h("div", { className: "config-group" });
+      gaGroup.appendChild(h("label", {}, "Gradient Accumulation ", h("span", { className: "label-hint" }, "effective batch = batch \u00d7 accum")));
+      const gaRow = h("div", { className: "input-row" });
+      const gaVal = state.trainConfig.gradient_accumulation_steps || 1;
+      const gaSlider = h("input", { type: "range", min: "1", max: "32", value: String(gaVal) });
+      gaSlider.addEventListener("input", (e) => { state.trainConfig.gradient_accumulation_steps = +e.target.value; render(); });
+      gaRow.appendChild(gaSlider);
+      gaRow.appendChild(h("span", { className: "range-val" }, String(gaVal)));
+      gaGroup.appendChild(gaRow);
+      grid.appendChild(gaGroup);
+
       // Platform-locked info
       const lockedGroup = h("div", { className: "config-group" });
       const isMac = !state.trainConfig.preset || !state.trainConfig.preset.startsWith("wsl2");
@@ -1739,12 +1799,75 @@
         h("span", { className: "output-dir-path" }, state.trainDatasetDir || "No dataset selected"),
         h("button", { className: "btn btn-secondary", onClick: selectTrainDataset }, ICONS.folderOpen(), " Choose"),
       ));
+
+      // Dataset info + recommendations
+      if (state.trainDatasetDir && state.trainDatasetPairs > 0) {
+        const pairs = state.trainDatasetPairs;
+        const frames = state.trainDatasetFrames;
+        const recSteps = pairs < 1000 ? 5000 : pairs < 5000 ? 15000 : pairs < 20000 ? 30000 : 50000;
+
+        const infoBar = h("div", { className: "estimate-bar", style: { margin: "10px 0" } });
+        infoBar.appendChild(h("div", { className: "estimate-stats" },
+          h("div", { className: "est-item" },
+            h("span", { className: "est-num" }, frames.toLocaleString()),
+            h("span", { className: "est-label" }, "frames"),
+          ),
+          h("div", { className: "est-sep" }, "\u00b7"),
+          h("div", { className: "est-item highlight" },
+            h("span", { className: "est-num" }, pairs.toLocaleString()),
+            h("span", { className: "est-label" }, "training pairs"),
+          ),
+          h("div", { className: "est-sep" }, "\u2192"),
+          h("div", { className: "est-item" },
+            h("span", { className: "est-num" }, recSteps.toLocaleString()),
+            h("span", { className: "est-label" }, "recommended steps"),
+          ),
+        ));
+
+        if (pairs < 1000) {
+          infoBar.appendChild(h("div", { className: "estimate-warn" },
+            "Small dataset \u2014 good for quick validation runs. Watch for overfitting; keep training steps low."
+          ));
+        } else if (pairs < 5000) {
+          infoBar.appendChild(h("div", { className: "estimate-warn" },
+            "Moderate dataset. Good for prototyping. For production quality, aim for 10K+ pairs."
+          ));
+        }
+
+        dataSection.appendChild(infoBar);
+      }
+
       dataSection.appendChild(h("div", { className: "output-dir-row", style: { marginTop: "8px" } },
         h("span", { className: "output-dir-label" }, "Output:"),
         h("span", { className: "output-dir-path" }, state.trainOutputDir || "Auto (inside dataset)"),
         h("button", { className: "btn btn-secondary", onClick: selectTrainOutputDir }, ICONS.folderOpen(), " Choose"),
       ));
       view.appendChild(dataSection);
+
+      // Training log (persists across failed attempts)
+      if (state.trainLog.length > 0) {
+        const logSection = h("div", { className: "train-section" });
+        logSection.appendChild(h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+          h("h3", { style: { margin: 0 } }, "Training Log"),
+          h("button", { className: "btn-text", onClick: () => { state.trainLogVisible = !state.trainLogVisible; render(); } },
+            state.trainLogVisible ? "Hide" : "Show"
+          ),
+        ));
+        if (state.trainLogVisible) {
+          const logEl = h("div", { className: "train-log", id: "train-log-config" });
+          state.trainLog.slice(-200).forEach(line => {
+            const text = typeof line === "string" ? line : (line.message || JSON.stringify(line));
+            const isError = (line && line.type === "error");
+            logEl.appendChild(h("div", { style: isError ? { color: "var(--danger)" } : {} }, text));
+          });
+          logSection.appendChild(logEl);
+          requestAnimationFrame(() => {
+            const el = document.getElementById("train-log-config");
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        }
+        view.appendChild(logSection);
+      }
 
       // Start button
       const canStart = state.trainDepStatus === "ok" && state.trainDatasetDir;
@@ -1960,6 +2083,7 @@
       const result = await window.api.selectDatasetDir();
       if (result && result.ok) {
         state.trainDatasetDir = result.path;
+        await loadTrainDatasetInfo();
         render();
       } else if (result && result.message) {
         alert(result.message);
@@ -1985,6 +2109,7 @@
       state.trainView = "config";
       state.view = "train";
       await detectTrainHardware();
+      await loadTrainDatasetInfo();
       render();
     }
 
@@ -1994,7 +2119,34 @@
       state.trainView = "config";
       state.view = "train";
       await detectTrainHardware();
+      await loadTrainDatasetInfo();
       render();
+    }
+
+    async function loadTrainDatasetInfo() {
+      if (!state.trainDatasetDir) return;
+      try {
+        const dataset = await window.api.loadDataset(state.trainDatasetDir);
+        if (!dataset.ok) return;
+        state.trainDatasetPairs = dataset.totalPairs;
+        state.trainDatasetFrames = dataset.totalFrames;
+
+        // Smart defaults based on dataset size
+        const pairs = dataset.totalPairs;
+        if (pairs < 5000) {
+          state.trainConfig.max_train_steps = 15000;
+          state.trainConfig.checkpointing_steps = 1000;
+          state.trainConfig.validation_steps = 250;
+        } else if (pairs < 20000) {
+          state.trainConfig.max_train_steps = 30000;
+          state.trainConfig.checkpointing_steps = 2000;
+          state.trainConfig.validation_steps = 500;
+        } else {
+          state.trainConfig.max_train_steps = 50000;
+          state.trainConfig.checkpointing_steps = 2000;
+          state.trainConfig.validation_steps = 500;
+        }
+      } catch {}
     }
 
     async function detectTrainHardware() {
@@ -2015,6 +2167,22 @@
       }
     }
 
+    async function installTrainingDeps() {
+      state.trainDepStatus = "installing";
+      state.trainLog = [];
+      render();
+
+      const result = await window.api.installTrainingDeps();
+
+      if (result.ok) {
+        // Re-detect hardware after install
+        await detectTrainHardware();
+      } else {
+        state.trainDepStatus = "error";
+      }
+      render();
+    }
+
     async function startTraining() {
       const preset = state.trainConfig.preset;
       if (!preset || !state.trainDatasetDir) return;
@@ -2026,6 +2194,8 @@
       if (state.trainConfig.learning_rate) overrides.learning_rate = state.trainConfig.learning_rate;
       if (state.trainConfig.checkpointing_steps) overrides.checkpointing_steps = state.trainConfig.checkpointing_steps;
       if (state.trainConfig.validation_steps) overrides.validation_steps = state.trainConfig.validation_steps;
+      if (state.trainConfig.train_batch_size) overrides.train_batch_size = state.trainConfig.train_batch_size;
+      if (state.trainConfig.gradient_accumulation_steps) overrides.gradient_accumulation_steps = state.trainConfig.gradient_accumulation_steps;
 
       // Prepare dataset first
       state.trainView = "preparing";
@@ -2064,11 +2234,19 @@
 
       if (result.ok) {
         state.trainProgressFile = result.progressFile;
-        // Start polling
-        state.trainPollingInterval = setInterval(() => pollTrainingProgress(), 3000);
+        if (state.trainProgressFile) {
+          // Delay first poll to give Python time to start and write initial progress
+          setTimeout(() => {
+            if (state.trainView === "training") {
+              state.trainPollingInterval = setInterval(() => pollTrainingProgress(), 3000);
+              pollTrainingProgress();
+            }
+          }, 2000);
+        }
       } else {
-        alert("Training failed to start: " + (result.error || "Unknown error"));
         state.trainView = "config";
+        state.trainLog.push({ type: "error", message: result.error || "Training failed to start" });
+        state.trainLogVisible = true;
         render();
       }
     }
@@ -2094,7 +2272,14 @@
       if (result.status === "complete" || result.status === "error" || result.status === "cancelled") {
         clearInterval(state.trainPollingInterval);
         state.trainPollingInterval = null;
-        state.trainView = result.status === "complete" ? "complete" : "config";
+        if (result.status === "complete") {
+          state.trainView = "complete";
+        } else {
+          state.trainView = "config";
+          const errMsg = result.error_message || `Training ${result.status}`;
+          state.trainLog.push({ type: "error", message: errMsg });
+          state.trainLogVisible = true;
+        }
       }
 
       render();
@@ -2157,6 +2342,10 @@
       state.trainPollingInterval = null;
       if (code === 0) {
         state.trainView = "complete";
+      } else {
+        state.trainView = "config";
+        state.trainLog.push({ type: "error", message: `Training process exited with code ${code}` });
+        state.trainLogVisible = true;
       }
       render();
     });

@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("api", {
   startTraining: (payload) => ipcRenderer.invoke("start-training", payload),
   cancelTraining: () => ipcRenderer.invoke("cancel-training"),
   getTrainingProgress: (progressFile) => ipcRenderer.invoke("get-training-progress", progressFile),
+  installTrainingDeps: () => ipcRenderer.invoke("install-training-deps"),
   onTrainingLog: (callback) => {
     const handler = (_event, msg) => callback(msg);
     ipcRenderer.on("training-log", handler);
