@@ -265,6 +265,7 @@
       -webkit-app-region: no-drag;
     }
     .num-input:focus { outline: none; border-color: var(--accent); }
+    .slider-num-input { width: 82px; text-align: right; }
 
     /* ── Output Dir ── */
     .output-dir-row {
@@ -1168,7 +1169,7 @@
       grid.appendChild(sourceGroup);
 
       // Frame Interval
-      grid.appendChild(makeSlider("Frame Interval", "extract every Nth frame", "frameInterval", 1, 120));
+      grid.appendChild(makeSlider("Frame Interval", "extract every Nth frame", "frameInterval", 1, 300, false, true));
 
       // Crops per Frame
       grid.appendChild(makeSlider("Crops per Frame", "rectilinear extractions", "cropsPerFrame", 1, 30));
@@ -1237,7 +1238,7 @@
       container.appendChild(panel);
     }
 
-    function makeSlider(label, hint, key, min, max, isPercent = false) {
+    function makeSlider(label, hint, key, min, max, isPercent = false, editableNumber = false) {
       const group = h("div", { className: "config-group" });
       group.appendChild(h("label", {}, `${label} `, h("span", { className: "label-hint" }, hint)));
       const row = h("div", { className: "input-row" });
@@ -1248,7 +1249,30 @@
         render();
       });
       row.appendChild(slider);
-      row.appendChild(h("span", { className: "range-val" }, isPercent ? `${displayVal}%` : String(displayVal)));
+      if (editableNumber && !isPercent) {
+        const input = h("input", {
+          className: "num-input slider-num-input",
+          type: "number",
+          min: String(min),
+          max: String(max),
+          step: "1",
+          value: String(displayVal),
+        });
+        const commit = () => {
+          const parsed = Math.round(Number(input.value));
+          if (!Number.isFinite(parsed)) {
+            input.value = String(displayVal);
+            return;
+          }
+          state.config[key] = Math.min(max, Math.max(min, parsed));
+          render();
+        };
+        input.addEventListener("change", commit);
+        input.addEventListener("blur", commit);
+        row.appendChild(input);
+      } else {
+        row.appendChild(h("span", { className: "range-val" }, isPercent ? `${displayVal}%` : String(displayVal)));
+      }
       group.appendChild(row);
       return group;
     }
