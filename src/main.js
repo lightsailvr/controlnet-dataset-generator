@@ -137,7 +137,6 @@ ipcMain.handle("select-output-dir", async () => {
 let pythonProcess = null;
 
 function findPython() {
-  // Try common Python 3 paths on macOS
   const candidates = [
     "python3",
     "/usr/local/bin/python3",
@@ -162,6 +161,14 @@ function findPython() {
     }
   }
   return null;
+}
+
+function findTrainingPython() {
+  const venvPython = path.join(__dirname, "..", ".venv", "bin", "python");
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+  return findPython();
 }
 
 ipcMain.handle("check-dependencies", async () => {
@@ -459,7 +466,7 @@ ipcMain.handle("delete-frames", async (event, { datasetDir, frameNames }) => {
 let trainingProcess = null;
 
 ipcMain.handle("install-training-deps", async () => {
-  const pythonPath = findPython();
+  const pythonPath = findTrainingPython();
   if (!pythonPath) return { ok: false, error: "Python 3 not found" };
 
   // Determine which requirements file to use
@@ -496,7 +503,7 @@ ipcMain.handle("install-training-deps", async () => {
 });
 
 ipcMain.handle("detect-hardware", async () => {
-  const pythonPath = findPython();
+  const pythonPath = findTrainingPython();
   if (!pythonPath) return { ok: false, error: "python3_not_found" };
 
   const scriptPath = path.join(__dirname, "..", "train", "train_controlnet.py");
@@ -512,7 +519,7 @@ ipcMain.handle("detect-hardware", async () => {
 });
 
 ipcMain.handle("prepare-training-dataset", async (event, { datasetDir, caption }) => {
-  const pythonPath = findPython();
+  const pythonPath = findTrainingPython();
   if (!pythonPath) return { ok: false, error: "Python 3 not found" };
 
   const scriptPath = path.join(__dirname, "..", "train", "prepare_dataset.py");
@@ -554,7 +561,7 @@ ipcMain.handle("prepare-training-dataset", async (event, { datasetDir, caption }
 });
 
 ipcMain.handle("start-training", async (event, { datasetDir, preset, overrides, outputDir }) => {
-  const pythonPath = findPython();
+  const pythonPath = findTrainingPython();
   if (!pythonPath) return { ok: false, error: "Python 3 not found" };
 
   const scriptPath = path.join(__dirname, "..", "train", "train_controlnet.py");

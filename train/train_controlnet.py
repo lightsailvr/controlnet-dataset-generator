@@ -1,32 +1,28 @@
 #!/usr/bin/env python3
 """Flux ControlNet training wrapper.
 
-Detects hardware platform, configures SimpleTuner, and launches training
-with unified progress reporting.
+Detects hardware platform, generates a JSONL manifest from the prepared
+dataset, then launches the diffusers train_controlnet_flux.py script
+via `accelerate launch` with progress reporting.
 
 Usage:
     python3 train/train_controlnet.py --dataset /path/to/dataset
-    python3 train/train_controlnet.py --dataset /path --preset wsl2_dual_a6000
+    python3 train/train_controlnet.py --dataset /path --preset macbook_m4_max
     python3 train/train_controlnet.py --job-file /tmp/train_job.json
     python3 train/train_controlnet.py --detect-hardware
 """
 
 import argparse
+import glob
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import datetime, timezone
-
-# Add parent dir to path so we can import train modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from train.configs.presets import PRESETS, get_preset, validate_config
-from train.configs.simpletuner_template import generate_config
-from train.progress.parser import ProgressParser
+from pathlib import Path
 
 
 def detect_hardware():
@@ -41,13 +37,11 @@ def detect_hardware():
     }
 
     if system == "Darwin":
-        # macOS — check memory to distinguish M3 Ultra vs M4 Max
         mem_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
         mem_gb = mem_bytes / (1024 ** 3)
         result["memory_gb"] = round(mem_gb)
         result["platform"] = "mps"
 
-        # Try to get chip name
         try:
             chip = subprocess.run(
                 ["sysctl", "-n", "machdep.cpu.brand_string"],
@@ -62,10 +56,9 @@ def detect_hardware():
         elif mem_gb > 100:
             result["preset"] = "macbook_m4_max"
         else:
-            result["preset"] = "macbook_m4_max"  # Conservative default
+            result["preset"] = "macbook_m4_max"
 
     elif system == "Linux" or system == "Windows":
-        # Check for NVIDIA GPUs
         try:
             smi = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name,memory.total",
@@ -83,75 +76,152 @@ def detect_hardware():
                 if len(gpus) >= 2:
                     result["preset"] = "wsl2_dual_a6000"
                 else:
-                    result["preset"] = "wsl2_dual_a6000"  # Use as base even for single GPU
+                    result["preset"] = "wsl2_dual_a6000"
         except FileNotFoundError:
             pass
-
-    # Check NVLink topology if CUDA
-    if result["platform"] == "cuda":
-        result["nvlink"] = _check_nvlink()
-        result["tcc_status"] = _check_tcc()
 
     return result
 
 
-def _check_nvlink():
-    """Check NVLink connectivity between GPUs."""
-    try:
-        topo = subprocess.run(
-            ["nvidia-smi", "topo", "-m"],
-            capture_output=True, text=True, timeout=10
+def _generate_jsonl(dataset_dir):
+    """Generate metadata.jsonl from train_ready/ for diffusers dataset loading.
+
+    Returns the path to the written JSONL file.
+    Each line: {"image": "<abs_path>", "text": "<caption>", "conditioning_image": "<abs_path>"}
+    """
+    train_ready = os.path.join(dataset_dir, "train_ready")
+    target_dir = os.path.join(train_ready, "target")
+    cond_dir = os.path.join(train_ready, "conditioning")
+
+    if not os.path.isdir(target_dir) or not os.path.isdir(cond_dir):
+        raise FileNotFoundError(
+            f"train_ready/target or train_ready/conditioning not found in {dataset_dir}. "
+            "Run dataset preparation first."
         )
-        if topo.returncode == 0:
-            output = topo.stdout
-            has_nvlink = "NV" in output and "PIX" not in output.split("\n")[1]
-            return {"available": has_nvlink, "topology": output.strip()}
-    except Exception:
-        pass
-    return {"available": False, "topology": None}
+
+    jsonl_path = os.path.join(train_ready, "metadata.jsonl")
+    count = 0
+
+    with open(jsonl_path, "w") as f:
+        for target_file in sorted(glob.glob(os.path.join(target_dir, "*.png"))):
+            stem = os.path.splitext(os.path.basename(target_file))[0]
+            cond_file = os.path.join(cond_dir, f"{stem}.png")
+            caption_file = os.path.join(target_dir, f"{stem}.txt")
+
+            if not os.path.exists(cond_file):
+                continue
+
+            caption = "equirectangular panorama"
+            if os.path.exists(caption_file):
+                with open(caption_file) as cf:
+                    caption = cf.read().strip() or caption
+
+            entry = {
+                "image": os.path.abspath(target_file),
+                "text": caption,
+                "conditioning_image": os.path.abspath(cond_file),
+            }
+            f.write(json.dumps(entry) + "\n")
+            count += 1
+
+    print(json.dumps({
+        "type": "log",
+        "message": f"Generated metadata.jsonl with {count} training pairs"
+    }), flush=True)
+
+    if count == 0:
+        raise ValueError("No valid training pairs found in train_ready/")
+
+    return jsonl_path
 
 
-def _check_tcc():
-    """Check TCC mode status on GPUs."""
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,driver_model.current",
-             "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=10
-        )
-        if result.returncode == 0:
-            modes = {}
-            for line in result.stdout.strip().split("\n"):
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) == 2:
-                    modes[int(parts[0])] = parts[1]
-            return modes
-    except Exception:
-        pass
-    return {}
+def _build_accelerate_cmd(preset, overrides, jsonl_path, output_dir):
+    """Build the `accelerate launch` CLI argument list."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    training_script = os.path.join(script_dir, "train_controlnet_flux.py")
+
+    resolution = overrides.get("resolution", preset.get("resolution", 512))
+    batch_size = overrides.get("train_batch_size", preset.get("train_batch_size", 1))
+    grad_accum = overrides.get("gradient_accumulation_steps",
+                               preset.get("gradient_accumulation_steps", 4))
+    lr = overrides.get("learning_rate", preset.get("learning_rate", 1e-4))
+    max_steps = overrides.get("max_train_steps", preset.get("max_train_steps", 3000))
+    ckpt_steps = overrides.get("checkpointing_steps", preset.get("checkpointing_steps", 500))
+    val_steps = overrides.get("validation_steps", preset.get("validation_steps", 250))
+    mixed_prec = preset.get("mixed_precision", "fp16")
+    num_double = overrides.get("num_double_layers", preset.get("num_double_layers", 4))
+    num_single = overrides.get("num_single_layers", preset.get("num_single_layers", 0))
+    lr_warmup = overrides.get("lr_warmup_steps", preset.get("lr_warmup_steps", 100))
+    lr_scheduler = overrides.get("lr_scheduler", preset.get("lr_scheduler", "cosine"))
+    seed = overrides.get("seed", preset.get("seed", 42))
+    model_name = preset.get("pretrained_model", "black-forest-labs/FLUX.1-dev")
+    dataloader_workers = preset.get("dataloader_num_workers", 0)
+    validation_prompt = overrides.get("validation_prompt", "equirectangular panorama")
+
+    cmd = [
+        sys.executable, "-m", "accelerate.commands.launch",
+        "--mixed_precision", mixed_prec,
+        "--num_processes", "1",
+        training_script,
+        "--pretrained_model_name_or_path", model_name,
+        "--jsonl_for_train", jsonl_path,
+        "--output_dir", output_dir,
+        "--resolution", str(resolution),
+        "--train_batch_size", str(batch_size),
+        "--gradient_accumulation_steps", str(grad_accum),
+        "--learning_rate", str(lr),
+        "--lr_scheduler", lr_scheduler,
+        "--lr_warmup_steps", str(lr_warmup),
+        "--max_train_steps", str(max_steps),
+        "--checkpointing_steps", str(ckpt_steps),
+        "--num_double_layers", str(num_double),
+        "--num_single_layers", str(num_single),
+        "--dataloader_num_workers", str(dataloader_workers),
+        "--seed", str(seed),
+    ]
+
+    if preset.get("gradient_checkpointing", True):
+        cmd.append("--gradient_checkpointing")
+
+    if val_steps and val_steps > 0:
+        # Find a conditioning image to use for validation
+        cond_dir = os.path.join(os.path.dirname(jsonl_path), "conditioning")
+        val_image = None
+        if os.path.isdir(cond_dir):
+            cond_images = sorted(glob.glob(os.path.join(cond_dir, "*.png")))
+            if cond_images:
+                val_image = cond_images[0]
+
+        if val_image:
+            cmd.extend(["--validation_steps", str(val_steps)])
+            cmd.extend(["--validation_prompt", validation_prompt])
+            cmd.extend(["--validation_image", val_image])
+
+    report_to = overrides.get("report_to", preset.get("report_to"))
+    if report_to:
+        cmd.extend(["--report_to", report_to])
+
+    return cmd
 
 
-def check_simpletuner():
-    """Verify SimpleTuner is installed."""
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", "import simpletuner; print('ok')"],
-            capture_output=True, text=True, timeout=15
-        )
-        return result.stdout.strip() == "ok"
-    except Exception:
-        return False
+# Regex patterns for parsing diffusers training output
+_TQDM_PATTERN = re.compile(
+    r"(\d+)/(\d+).*?loss[=:]\s*([\d.eE+-]+).*?lr[=:]\s*([\d.eE+-]+)",
+    re.IGNORECASE
+)
+_TQDM_BASIC = re.compile(r"(\d+)/(\d+)")
+_LOSS_ONLY = re.compile(r"(?:train_)?loss[=:\s]+([\d.eE+-]+)", re.IGNORECASE)
+_LR_ONLY = re.compile(r"(?:learning_rate|lr)[=:\s]+([\d.eE+-]+)", re.IGNORECASE)
+_CKPT_PATTERN = re.compile(r"saving.*checkpoint|checkpoint.*saved", re.IGNORECASE)
+_VALIDATION_IMG = re.compile(r"saved.*?(\S+\.png)", re.IGNORECASE)
+_ERROR_PATTERN = re.compile(r"error|traceback|exception|oom|out of memory", re.IGNORECASE)
+_STEPS_PER_SEC = re.compile(r"([\d.]+)\s*(?:s/it|it/s)")
 
 
-def run_training(dataset_dir, preset_name, overrides=None, output_dir=None):
-    """Run the full training pipeline."""
+def run_training(dataset_dir, preset, overrides=None, output_dir=None):
+    """Run the full training pipeline using diffusers."""
     overrides = overrides or {}
-    preset = get_preset(preset_name)
 
-    # Validate no forbidden options
-    validate_config(preset_name, overrides)
-
-    # Resolve output directory
     if not output_dir:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = os.path.join(dataset_dir, "training_output", timestamp)
@@ -159,10 +229,8 @@ def run_training(dataset_dir, preset_name, overrides=None, output_dir=None):
 
     # Prepare dataset if needed
     train_ready = os.path.join(dataset_dir, "train_ready")
-    mdb_path = os.path.join(train_ready, "multidatabackend.json")
-    if not os.path.exists(mdb_path):
-        print(json.dumps({"type": "log", "message": "Preparing dataset for SimpleTuner..."}),
-              flush=True)
+    if not os.path.isdir(train_ready):
+        print(json.dumps({"type": "log", "message": "Preparing dataset..."}), flush=True)
         prep_result = subprocess.run(
             [sys.executable, os.path.join(os.path.dirname(__file__), "prepare_dataset.py"),
              dataset_dir],
@@ -174,34 +242,43 @@ def run_training(dataset_dir, preset_name, overrides=None, output_dir=None):
             return False
         print(prep_result.stdout, flush=True)
 
-    # Generate SimpleTuner config
-    run_dir = os.path.join(output_dir, "config")
-    config_path = generate_config(preset, overrides, run_dir, mdb_path)
+    # Generate JSONL for diffusers
+    try:
+        jsonl_path = _generate_jsonl(dataset_dir)
+    except (FileNotFoundError, ValueError) as e:
+        _write_progress(output_dir, status="error", error_message=str(e))
+        return False
 
-    # Set up environment
+    # Build and launch training
+    preset_name = preset if isinstance(preset, str) else preset.get("display_name", "custom")
+    platform_name = preset.get("platform", "unknown") if isinstance(preset, dict) else "unknown"
+
+    cmd = _build_accelerate_cmd(
+        preset if isinstance(preset, dict) else {},
+        overrides, jsonl_path, output_dir
+    )
+
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
-    for key, val in preset.get("env", {}).items():
-        env[key] = val
-
-    # Build SimpleTuner launch command
-    cmd = [sys.executable, "-m", "simpletuner.train", "--config-dir", run_dir]
+    if isinstance(preset, dict):
+        for key, val in preset.get("env", {}).items():
+            env[key] = str(val)
 
     print(json.dumps({
         "type": "log",
-        "message": f"Launching SimpleTuner with preset '{preset_name}' on {preset['platform']}"
+        "message": f"Launching training: {' '.join(cmd[-10:])}"
     }), flush=True)
 
-    # Write initial progress
-    total_steps = overrides.get("max_train_steps", preset["max_train_steps"])
+    total_steps = overrides.get("max_train_steps",
+                                preset.get("max_train_steps", 3000) if isinstance(preset, dict) else 3000)
     _write_progress(output_dir, status="training", total_steps=total_steps,
-                    platform=preset["platform"], preset=preset_name)
+                    platform=platform_name, preset=preset_name)
 
-    # Spawn training process
-    parser = ProgressParser()
     loss_history = []
     validation_images = []
     last_checkpoint = None
+    last_step = 0
+    start_time = time.time()
 
     try:
         proc = subprocess.Popen(
@@ -214,59 +291,82 @@ def run_training(dataset_dir, preset_name, overrides=None, output_dir=None):
             if not line:
                 continue
 
-            event = parser.parse_line(line)
-            if not event:
-                continue
+            print(json.dumps({"type": "log", "message": line}), flush=True)
 
-            # Forward to stdout for Electron
-            print(json.dumps(event), flush=True)
+            # Parse tqdm-style progress
+            m = _TQDM_PATTERN.search(line)
+            if m:
+                step = int(m.group(1))
+                total = int(m.group(2))
+                loss = float(m.group(3))
+                lr = float(m.group(4))
+                last_step = step
 
-            # Update progress file periodically
-            if event["type"] == "progress":
-                step = event.get("step", 0)
-                loss = event.get("loss")
-                if loss is not None:
-                    loss_history.append([step, loss])
-                    # Keep last 1000 points
-                    if len(loss_history) > 1000:
-                        loss_history = loss_history[-1000:]
+                elapsed = time.time() - start_time
+                loss_history.append([step, loss])
+                if len(loss_history) > 1000:
+                    loss_history = loss_history[-1000:]
 
-                if step % 10 == 0 or step == total_steps:
+                sps_match = _STEPS_PER_SEC.search(line)
+                steps_per_sec = 0
+                eta = 0
+                if sps_match:
+                    val = float(sps_match.group(1))
+                    if "s/it" in line:
+                        steps_per_sec = 1.0 / val if val > 0 else 0
+                    else:
+                        steps_per_sec = val
+                    remaining = total - step
+                    eta = remaining / steps_per_sec if steps_per_sec > 0 else 0
+
+                if step % 10 == 0 or step == total:
                     _write_progress(
-                        output_dir,
-                        status="training",
-                        current_step=step,
-                        total_steps=total_steps,
-                        loss=loss,
-                        loss_history=loss_history,
-                        learning_rate=event.get("lr"),
-                        elapsed_seconds=event.get("elapsed", 0),
-                        steps_per_second=event.get("steps_per_sec", 0),
-                        eta_seconds=event.get("eta", 0),
+                        output_dir, status="training",
+                        current_step=step, total_steps=total,
+                        loss=loss, loss_history=loss_history,
+                        learning_rate=lr, elapsed_seconds=round(elapsed),
+                        steps_per_second=round(steps_per_sec, 3),
+                        eta_seconds=round(eta),
                         last_checkpoint=last_checkpoint,
                         validation_images=validation_images,
-                        platform=preset["platform"],
-                        preset=preset_name,
+                        platform=platform_name, preset=preset_name,
                     )
 
-            elif event["type"] == "validation":
-                img_path = event.get("image")
-                if img_path:
-                    validation_images.append(img_path)
+                print(json.dumps({
+                    "type": "progress", "step": step, "total": total,
+                    "loss": loss, "lr": lr,
+                    "pct": round((step / total) * 100, 2) if total > 0 else 0,
+                }), flush=True)
+                continue
 
-            elif event["type"] == "checkpoint":
-                last_checkpoint = event.get("message", "")
+            # Basic step match without loss/lr
+            m_basic = _TQDM_BASIC.search(line)
+            if m_basic and not m:
+                step = int(m_basic.group(1))
+                total = int(m_basic.group(2))
+                if step > last_step:
+                    last_step = step
+                    loss_m = _LOSS_ONLY.search(line)
+                    lr_m = _LR_ONLY.search(line)
+                    loss_val = float(loss_m.group(1)) if loss_m else None
+                    if loss_val is not None:
+                        loss_history.append([step, loss_val])
 
-            elif event["type"] == "error":
+            # Checkpoint detection
+            if _CKPT_PATTERN.search(line):
+                last_checkpoint = line
                 _write_progress(
-                    output_dir, status="error",
-                    error_message=event.get("message", "Unknown error"),
-                    current_step=parser.last_step,
-                    total_steps=total_steps,
-                    loss_history=loss_history,
-                    platform=preset["platform"],
-                    preset=preset_name,
+                    output_dir, status="training",
+                    current_step=last_step, total_steps=total_steps,
+                    loss_history=loss_history, last_checkpoint=last_checkpoint,
+                    validation_images=validation_images,
+                    platform=platform_name, preset=preset_name,
                 )
+
+            # Validation image detection
+            vm = _VALIDATION_IMG.search(line)
+            if vm:
+                validation_images.append(vm.group(1))
 
         proc.wait()
 
@@ -274,16 +374,13 @@ def run_training(dataset_dir, preset_name, overrides=None, output_dir=None):
         final_error = None if proc.returncode == 0 else f"Process exited with code {proc.returncode}"
 
         _write_progress(
-            output_dir,
-            status=final_status,
-            current_step=parser.last_step,
-            total_steps=total_steps,
+            output_dir, status=final_status,
+            current_step=last_step, total_steps=total_steps,
             loss=loss_history[-1][1] if loss_history else None,
             loss_history=loss_history,
             validation_images=validation_images,
             last_checkpoint=last_checkpoint,
-            platform=preset["platform"],
-            preset=preset_name,
+            platform=platform_name, preset=preset_name,
             error_message=final_error,
         )
 
@@ -292,13 +389,13 @@ def run_training(dataset_dir, preset_name, overrides=None, output_dir=None):
     except KeyboardInterrupt:
         proc.terminate()
         _write_progress(output_dir, status="cancelled",
-                        current_step=parser.last_step, total_steps=total_steps,
-                        loss_history=loss_history, platform=preset["platform"],
+                        current_step=last_step, total_steps=total_steps,
+                        loss_history=loss_history, platform=platform_name,
                         preset=preset_name)
         return False
     except Exception as e:
         _write_progress(output_dir, status="error",
-                        error_message=str(e), platform=preset["platform"],
+                        error_message=str(e), platform=platform_name,
                         preset=preset_name)
         raise
 
@@ -332,7 +429,7 @@ def _write_progress(output_dir, **kwargs):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Flux ControlNet training wrapper"
+        description="Flux ControlNet training wrapper (diffusers backend)"
     )
     parser.add_argument("--dataset", help="Path to dataset directory")
     parser.add_argument("--preset", help="Hardware preset name")
@@ -390,39 +487,15 @@ def main():
             sys.exit(1)
         print(json.dumps({
             "type": "log",
-            "message": f"Auto-detected hardware: {PRESETS[preset_name]['display_name']}"
+            "message": f"Auto-detected hardware preset: {preset_name}"
         }), flush=True)
 
-        # Print warnings for NVIDIA
-        if hw.get("platform") == "cuda":
-            nvlink = hw.get("nvlink", {})
-            if not nvlink.get("available"):
-                print(json.dumps({
-                    "type": "log",
-                    "message": "WARNING: NVLink not detected. Training will use PCIe for GPU sync (slower)."
-                }), flush=True)
+    # Load preset config
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from train.configs.presets import PRESETS, get_preset
+    preset = get_preset(preset_name)
 
-            tcc = hw.get("tcc_status", {})
-            for gpu_id, mode in tcc.items():
-                if gpu_id > 0 and "WDDM" in mode:
-                    print(json.dumps({
-                        "type": "log",
-                        "message": f"WARNING: GPU {gpu_id} is in WDDM mode. "
-                                   f"Consider TCC mode: nvidia-smi -i {gpu_id} -dm 1"
-                    }), flush=True)
-
-    # Verify SimpleTuner is installed
-    if not check_simpletuner():
-        preset = get_preset(preset_name)
-        req_file = "requirements_mac.txt" if preset["platform"] == "mps" else "requirements_nvidia.txt"
-        error_msg = f"SimpleTuner is not installed. Run: pip3 install -r train/{req_file}"
-        print(json.dumps({"type": "error", "message": error_msg}), flush=True)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            _write_progress(output_dir, status="error", error_message=error_msg)
-        sys.exit(1)
-
-    success = run_training(dataset_dir, preset_name, overrides, output_dir)
+    success = run_training(dataset_dir, preset, overrides, output_dir)
     sys.exit(0 if success else 1)
 
 
