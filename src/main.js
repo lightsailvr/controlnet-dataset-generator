@@ -330,9 +330,32 @@ ipcMain.handle("load-dataset", async (event, dir) => {
       }
     }
 
+    // Build source files summary for the drill-down source list
+    const sourceMap = new Map();
+    for (const frame of frames) {
+      const sf = frame.sourceFile || "__unknown__";
+      if (!sourceMap.has(sf)) {
+        const ext = path.extname(sf).replace(".", "").toLowerCase();
+        const isVideo = VIDEO_EXTENSIONS.has(ext);
+        sourceMap.set(sf, {
+          name: sf,
+          type: isVideo ? "video" : "image",
+          frameCount: 0,
+          pairCount: 0,
+          firstFrame: null,
+        });
+      }
+      const entry = sourceMap.get(sf);
+      entry.frameCount++;
+      entry.pairCount += frame.pairCount;
+      if (!entry.firstFrame) entry.firstFrame = frame.name;
+    }
+    const sourceFiles = [...sourceMap.values()];
+
     return {
       ok: true,
       frames,
+      sourceFiles,
       totalPairs: manifest.total_pairs || manifest.pairs.length,
       totalFrames: frames.length,
     };
@@ -375,6 +398,132 @@ ipcMain.handle("generate-thumbnails", async (event, { datasetDir, frameNames }) 
   }
 
   return { thumbnails };
+});
+
+ipcMain.handle("generate-source-thumbnails", async (event, { datasetDir, sources }) => {
+  const thumbDir = path.join(datasetDir, ".thumbs");
+  if (!fs.existsSync(thumbDir)) {
+    fs.mkdirSync(thumbDir, { recursive: true });
+  }
+
+  const thumbnails = {};
+  for (const src of sources) {
+    const frameName = src.firstFrame;
+    if (!frameName) continue;
+
+    const cacheKey = `_src_${src.name}`;
+    const cachedPath = path.join(thumbDir, `${cacheKey}.jpg`);
+
+    if (fs.existsSync(cachedPath)) {
+      const buf = fs.readFileSync(cachedPath);
+      thumbnails[src.name] = `data:image/jpeg;base64,${buf.toString("base64")}`;
+      continue;
+    }
+
+    const targetPath = path.join(datasetDir, "target", `${frameName}.png`);
+    if (!fs.existsSync(targetPath)) continue;
+
+    try {
+      const img = nativeImage.createFromPath(targetPath);
+      if (img.isEmpty()) continue;
+      const thumb = img.resize({ height: 80 });
+      const jpegBuf = thumb.toJPEG(70);
+      fs.writeFileSync(cachedPath, jpegBuf);
+      thumbnails[src.name] = `data:image/jpeg;base64,${jpegBuf.toString("base64")}`;
+    } catch (err) {
+      console.error(`Source thumbnail error for ${src.name}:`, err);
+    }
+  }
+
+  return { thumbnails };
+});
+
+ipcMain.handle("delete-sources", async (event, { datasetDir, sourceNames }) => {
+  try {
+    const pairsPath = path.join(datasetDir, "pairs.json");
+    const manifest = JSON.parse(fs.readFileSync(pairsPath, "utf-8"));
+
+    const sourcesToDelete = new Set(sourceNames);
+    const pairsToDelete = [];
+    const pairsToKeep = [];
+
+    for (const pair of manifest.pairs) {
+      if (sourcesToDelete.has(pair.source_file)) {
+        pairsToDelete.push(pair);
+      } else {
+        pairsToKeep.push(pair);
+      }
+    }
+
+    // Collect unique frames being deleted
+    const framesToDelete = new Set(pairsToDelete.map(p => p.source_frame));
+
+    // Delete conditioning images and metadata
+    for (const pair of pairsToDelete) {
+      const condPath = path.join(datasetDir, pair.conditioning);
+      const metaPath = path.join(datasetDir, pair.metadata);
+      try { fs.unlinkSync(condPath); } catch {}
+      try { fs.unlinkSync(metaPath); } catch {}
+    }
+
+    // Delete target images, source equirects, and thumbnails
+    const deletedSourceDirs = new Set();
+    for (const name of framesToDelete) {
+      try { fs.unlinkSync(path.join(datasetDir, "target", `${name}.png`)); } catch {}
+      try { fs.unlinkSync(path.join(datasetDir, ".thumbs", `${name}.jpg`)); } catch {}
+
+      const samplePair = pairsToDelete.find(p => p.source_frame === name);
+      if (samplePair && samplePair.source_file) {
+        const videoStem = path.parse(samplePair.source_file).name;
+        const sourceDir = path.join(datasetDir, "source_equirects", videoStem);
+        const frameSuffix = name.startsWith(videoStem + "_") ? name.slice(videoStem.length + 1) : name;
+        const sourceFile = path.join(sourceDir, `${frameSuffix}.png`);
+        try { fs.unlinkSync(sourceFile); } catch {}
+        deletedSourceDirs.add(sourceDir);
+      }
+    }
+
+    // Delete source thumbnail cache entries
+    for (const srcName of sourceNames) {
+      const cacheKey = `_src_${srcName}`;
+      try { fs.unlinkSync(path.join(datasetDir, ".thumbs", `${cacheKey}.jpg`)); } catch {}
+    }
+
+    // Clean up empty source_equirects subdirectories
+    for (const dir of deletedSourceDirs) {
+      try {
+        const remaining = fs.readdirSync(dir);
+        if (remaining.length === 0) fs.rmdirSync(dir);
+      } catch {}
+    }
+
+    // Update manifest
+    manifest.pairs = pairsToKeep;
+    manifest.total_pairs = pairsToKeep.length;
+    const remainingFrames = new Set(pairsToKeep.map(p => p.source_frame));
+    manifest.total_frames = remainingFrames.size;
+    fs.writeFileSync(pairsPath, JSON.stringify(manifest, null, 2));
+
+    // Update generation_results.json
+    const resultsPath = path.join(datasetDir, "generation_results.json");
+    try {
+      const results = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+      results.total_pairs = pairsToKeep.length;
+      results.total_frames = remainingFrames.size;
+      fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
+    } catch {}
+
+    return {
+      ok: true,
+      deletedSources: sourceNames.length,
+      deletedFrames: framesToDelete.size,
+      deletedPairs: pairsToDelete.length,
+      remainingFrames: remainingFrames.size,
+      remainingPairs: pairsToKeep.length,
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 ipcMain.handle("delete-frames", async (event, { datasetDir, frameNames }) => {

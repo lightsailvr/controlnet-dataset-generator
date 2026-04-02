@@ -617,6 +617,220 @@
       font-size: 14px;
     }
 
+    /* ── Source List View ── */
+    .source-list-view {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 52px - 48px);
+      position: relative;
+    }
+    .source-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .source-search-wrap {
+      position: relative;
+      flex: 1;
+      max-width: 320px;
+    }
+    .source-search {
+      width: 100%;
+      padding: 6px 10px 6px 30px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg-input);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      -webkit-app-region: no-drag;
+    }
+    .source-search:focus { outline: none; border-color: var(--accent); }
+    .source-search-icon {
+      position: absolute;
+      left: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+    .source-sort-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .source-sort-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 4px 8px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+      -webkit-app-region: no-drag;
+    }
+    .source-sort-btn:hover { border-color: var(--border-hover); color: var(--text); }
+    .source-sort-btn.active {
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-color: rgba(78,205,196,0.3);
+    }
+
+    .source-list-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .source-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+      margin-bottom: 2px;
+    }
+    .source-row:hover { background: var(--bg-raised); border-color: var(--border); }
+    .source-row.all-frames-row {
+      background: var(--bg-raised);
+      border-color: var(--border);
+      margin-bottom: 8px;
+    }
+    .source-row.all-frames-row:hover { border-color: var(--border-hover); }
+    .source-row .source-checkbox {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--border);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.12s;
+      cursor: pointer;
+    }
+    .source-row .source-checkbox:hover { border-color: var(--border-hover); }
+    .source-row .source-checkbox.checked {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--bg);
+    }
+    .source-row .source-thumb {
+      width: 64px;
+      height: 40px;
+      border-radius: 4px;
+      background: var(--bg-input);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .source-row .source-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .source-row .source-thumb-placeholder {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(110deg, var(--bg-input) 30%, var(--bg-card) 50%, var(--bg-input) 70%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+    .source-row .source-type-icon {
+      flex-shrink: 0;
+      display: flex;
+      opacity: 0.7;
+    }
+    .source-row .source-type-icon.video { color: var(--video-color); }
+    .source-row .source-type-icon.image { color: var(--image-color); }
+    .source-row .source-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .source-row .source-name {
+      font-size: 13px;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .source-row .source-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .source-row .source-meta strong { color: var(--text-dim); }
+    .source-row .source-arrow {
+      color: var(--text-muted);
+      flex-shrink: 0;
+      opacity: 0;
+      transition: opacity 0.12s;
+    }
+    .source-row:hover .source-arrow { opacity: 1; }
+
+    .source-selection-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--bg-raised);
+      border-top: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 10;
+    }
+    .source-selection-bar .sel-info {
+      font-size: 13px;
+      color: var(--text);
+      margin-right: auto;
+    }
+    .source-selection-bar .sel-info strong { color: var(--accent); }
+
+    .source-empty {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* ── Breadcrumb ── */
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .breadcrumb-link {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 0;
+      -webkit-app-region: no-drag;
+    }
+    .breadcrumb-link:hover { color: var(--accent); }
+    .breadcrumb-sep { color: var(--text-muted); }
+    .breadcrumb-current {
+      color: var(--text);
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 300px;
+    }
+
     /* ── Training View ── */
     .train-view { display: flex; flex-direction: column; }
     .train-section {
@@ -675,7 +889,7 @@
   <script>
     // ── State ──
     const state = {
-      view: "setup",           // setup | processing | complete
+      view: "setup",           // setup | processing | complete | review-sources | review
       files: [],
       config: {
         sourceType: "360",
@@ -697,16 +911,24 @@
       processFile: null,
       processFileIndex: -1,
       results: null,
-      // Review view
+      // Review — shared
       reviewDatasetDir: null,
       reviewFrames: [],
-      reviewSelection: new Set(),
-      reviewLastClicked: null,
       reviewLoading: false,
       reviewTotalPairs: 0,
       reviewTotalFrames: 0,
-      reviewShowModal: false,
       reviewEntryPoint: "setup",
+      // Review — source list (Level 1)
+      reviewSourceFiles: [],
+      reviewSourceSelection: new Set(),
+      reviewSourceSearch: "",
+      reviewSourceSort: "name",     // "name" | "frames" | "pairs"
+      reviewSourceShowModal: false,
+      // Review — contact sheet (Level 2)
+      reviewActiveSource: null,     // null = not drilled in, source filename or "__all__"
+      reviewSelection: new Set(),
+      reviewLastClicked: null,
+      reviewShowModal: false,
       // Training view
       trainView: "config",
       trainDatasetDir: null,
@@ -796,6 +1018,7 @@
       if (state.view === "setup") renderSetup(content);
       else if (state.view === "processing") renderProcessing(content);
       else if (state.view === "complete") renderComplete(content);
+      else if (state.view === "review-sources") renderReviewSources(content);
       else if (state.view === "review") renderReview(content);
       else if (state.view === "train") renderTrain(content);
 
@@ -1242,31 +1465,455 @@
       render();
     }
 
-    // ── Review View ──
+    // ── Review Source List (Level 1) ──
+
+    let sourceThumbsLoading = false;
+    let sourceThumbObserver = null;
+
+    function getFilteredSources() {
+      let sources = [...state.reviewSourceFiles];
+      if (state.reviewSourceSearch) {
+        const q = state.reviewSourceSearch.toLowerCase();
+        sources = sources.filter(s => s.name.toLowerCase().includes(q));
+      }
+      const sortKey = state.reviewSourceSort;
+      sources.sort((a, b) => {
+        if (sortKey === "name") return a.name.localeCompare(b.name);
+        if (sortKey === "frames") return b.frameCount - a.frameCount;
+        if (sortKey === "pairs") return b.pairCount - a.pairCount;
+        return 0;
+      });
+      return sources;
+    }
+
+    function renderReviewSources(container) {
+      const view = h("div", { className: "source-list-view" });
+
+      // Toolbar
+      const toolbar = h("div", { className: "source-toolbar" });
+      toolbar.appendChild(h("button", { className: "btn-back", onClick: () => {
+        state.view = state.reviewEntryPoint;
+        state.reviewFrames = [];
+        state.reviewSourceFiles = [];
+        state.reviewSourceSelection.clear();
+        state.reviewSourceSearch = "";
+        render();
+      } }, "\u2190 Back"));
+
+      toolbar.appendChild(h("div", { className: "review-stats" },
+        h("strong", {}, `${state.reviewSourceFiles.length}`), ` source${state.reviewSourceFiles.length !== 1 ? "s" : ""} \u00b7 `,
+        h("strong", {}, `${state.reviewTotalFrames}`), ` frames \u00b7 `,
+        h("strong", {}, `${state.reviewTotalPairs}`), ` pairs`,
+      ));
+
+      view.appendChild(toolbar);
+
+      // Search + Sort bar
+      const searchBar = h("div", { style: { display: "flex", alignItems: "center", gap: "12px", padding: "10px 0", flexShrink: "0" } });
+
+      const searchWrap = h("div", { className: "source-search-wrap" });
+      const searchIcon = h("span", { className: "source-search-icon" },
+        svgIcon('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>', 14)
+      );
+      searchWrap.appendChild(searchIcon);
+      const searchInput = h("input", {
+        className: "source-search",
+        type: "text",
+        placeholder: "Search sources...",
+        value: state.reviewSourceSearch,
+      });
+      searchInput.addEventListener("input", (e) => {
+        state.reviewSourceSearch = e.target.value;
+        renderSourceList();
+      });
+      searchWrap.appendChild(searchInput);
+      searchBar.appendChild(searchWrap);
+
+      const sortWrap = h("div", { className: "source-sort-wrap" });
+      sortWrap.appendChild(h("span", {}, "Sort:"));
+      [["name", "Name"], ["frames", "Frames"], ["pairs", "Pairs"]].forEach(([key, label]) => {
+        sortWrap.appendChild(h("button", {
+          className: `source-sort-btn${state.reviewSourceSort === key ? " active" : ""}`,
+          onClick: () => { state.reviewSourceSort = key; renderSourceList(); },
+        }, label));
+      });
+      searchBar.appendChild(sortWrap);
+
+      view.appendChild(searchBar);
+
+      // Source list container
+      if (state.reviewLoading) {
+        view.appendChild(h("div", { className: "source-empty" }, "Loading dataset\u2026"));
+      } else if (state.reviewSourceFiles.length === 0) {
+        view.appendChild(h("div", { className: "source-empty" }, "No source files found in this dataset."));
+      } else {
+        const listContainer = h("div", { className: "source-list-container", id: "source-list-container" });
+        const listInner = h("div", { id: "source-list-inner" });
+
+        // "All Frames" entry
+        const allRow = h("div", { className: "source-row all-frames-row", onClick: () => drillIntoSource("__all__") });
+        allRow.appendChild(h("div", { style: { width: "18px" } }));
+        allRow.appendChild(h("div", { className: "source-type-icon" },
+          svgIcon('<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/>', 16)
+        ));
+        allRow.appendChild(h("div", { className: "source-info" },
+          h("div", { className: "source-name" }, "All Frames"),
+          h("div", { className: "source-meta" },
+            h("strong", {}, `${state.reviewTotalFrames}`), ` frames \u00b7 `,
+            h("strong", {}, `${state.reviewTotalPairs}`), ` pairs`,
+          ),
+        ));
+        allRow.appendChild(h("div", { className: "source-arrow" }, svgIcon('<polyline points="9 18 15 12 9 6"/>', 14)));
+        listInner.appendChild(allRow);
+
+        // Source rows
+        const filtered = getFilteredSources();
+        if (filtered.length === 0 && state.reviewSourceSearch) {
+          listInner.appendChild(h("div", { className: "source-empty" }, "No sources match your search."));
+        }
+        filtered.forEach((src) => {
+          const isSelected = state.reviewSourceSelection.has(src.name);
+          const row = h("div", { className: "source-row", "data-source": src.name });
+
+          // Checkbox
+          const checkbox = h("div", {
+            className: `source-checkbox${isSelected ? " checked" : ""}`,
+            onClick: (e) => { e.stopPropagation(); toggleSourceSelection(src.name); },
+          });
+          if (isSelected) checkbox.appendChild(ICONS.check());
+          row.appendChild(checkbox);
+
+          // Thumbnail
+          const thumbDiv = h("div", { className: "source-thumb" });
+          if (src.thumb) {
+            thumbDiv.appendChild(h("img", { src: src.thumb, alt: src.name, draggable: "false" }));
+          } else {
+            thumbDiv.appendChild(h("div", { className: "source-thumb-placeholder", "data-source-thumb": src.name }));
+          }
+          row.appendChild(thumbDiv);
+
+          // Type icon
+          row.appendChild(h("div", { className: `source-type-icon ${src.type}` },
+            src.type === "video" ? ICONS.film() : ICONS.image()
+          ));
+
+          // Info
+          row.appendChild(h("div", { className: "source-info" },
+            h("div", { className: "source-name", title: src.name }, src.name),
+            h("div", { className: "source-meta" },
+              h("strong", {}, `${src.frameCount}`), ` frame${src.frameCount !== 1 ? "s" : ""} \u00b7 `,
+              h("strong", {}, `${src.pairCount}`), ` pairs`,
+            ),
+          ));
+
+          // Arrow
+          row.appendChild(h("div", { className: "source-arrow" }, svgIcon('<polyline points="9 18 15 12 9 6"/>', 14)));
+
+          row.addEventListener("click", () => drillIntoSource(src.name));
+          listInner.appendChild(row);
+        });
+
+        listContainer.appendChild(listInner);
+        if (state.reviewSourceSelection.size > 0) {
+          listContainer.style.paddingBottom = "60px";
+        }
+        view.appendChild(listContainer);
+      }
+
+      // Source selection bar
+      if (state.reviewSourceSelection.size > 0) {
+        const selSources = state.reviewSourceFiles.filter(s => state.reviewSourceSelection.has(s.name));
+        const selFrames = selSources.reduce((sum, s) => sum + s.frameCount, 0);
+        const selPairs = selSources.reduce((sum, s) => sum + s.pairCount, 0);
+
+        view.appendChild(h("div", { className: "source-selection-bar" },
+          h("div", { className: "sel-info" },
+            h("strong", {}, `${state.reviewSourceSelection.size}`), ` source${state.reviewSourceSelection.size > 1 ? "s" : ""} \u00b7 `,
+            h("strong", {}, `${selFrames}`), ` frames \u00b7 `,
+            h("strong", {}, `${selPairs}`), ` pairs`,
+          ),
+          h("button", { className: "btn btn-secondary", onClick: () => {
+            state.reviewSourceSelection.clear();
+            render();
+          } }, "Cancel"),
+          h("button", { className: "btn btn-danger", onClick: () => {
+            state.reviewSourceShowModal = true;
+            render();
+          } }, "Delete Selected Sources"),
+        ));
+      }
+
+      // Source delete modal
+      if (state.reviewSourceShowModal) {
+        const selSources = state.reviewSourceFiles.filter(s => state.reviewSourceSelection.has(s.name));
+        const selFrames = selSources.reduce((sum, s) => sum + s.frameCount, 0);
+        const selPairs = selSources.reduce((sum, s) => sum + s.pairCount, 0);
+
+        const overlay = h("div", { className: "review-modal-overlay", onClick: (e) => {
+          if (e.target === e.currentTarget) { state.reviewSourceShowModal = false; render(); }
+        } });
+        const modal = h("div", { className: "review-modal" });
+        modal.appendChild(h("h3", {}, "Delete Sources"));
+        modal.appendChild(h("p", {},
+          `Remove all data from ${state.reviewSourceSelection.size} source file${state.reviewSourceSelection.size > 1 ? "s" : ""}? This will delete ${selFrames} frame${selFrames !== 1 ? "s" : ""} and ${selPairs} associated conditioning pair${selPairs !== 1 ? "s" : ""}, including target images, conditioning crops, metadata, and source equirects. This cannot be undone.`
+        ));
+        modal.appendChild(h("div", { className: "modal-actions" },
+          h("button", { className: "btn btn-secondary", onClick: () => {
+            state.reviewSourceShowModal = false;
+            render();
+          } }, "Cancel"),
+          h("button", { className: "btn btn-danger", onClick: () => executeSourceDelete() }, "Delete"),
+        ));
+        overlay.appendChild(modal);
+        view.appendChild(overlay);
+      }
+
+      container.appendChild(view);
+
+      requestAnimationFrame(() => setupSourceThumbObserver());
+    }
+
+    function renderSourceList() {
+      const inner = document.getElementById("source-list-inner");
+      if (!inner) { render(); return; }
+
+      // Keep the "All Frames" row, rebuild the rest
+      while (inner.children.length > 1) inner.removeChild(inner.lastChild);
+
+      const filtered = getFilteredSources();
+      if (filtered.length === 0 && state.reviewSourceSearch) {
+        inner.appendChild(h("div", { className: "source-empty" }, "No sources match your search."));
+        return;
+      }
+
+      filtered.forEach((src) => {
+        const isSelected = state.reviewSourceSelection.has(src.name);
+        const row = h("div", { className: "source-row", "data-source": src.name });
+
+        const checkbox = h("div", {
+          className: `source-checkbox${isSelected ? " checked" : ""}`,
+          onClick: (e) => { e.stopPropagation(); toggleSourceSelection(src.name); },
+        });
+        if (isSelected) checkbox.appendChild(ICONS.check());
+        row.appendChild(checkbox);
+
+        const thumbDiv = h("div", { className: "source-thumb" });
+        if (src.thumb) {
+          thumbDiv.appendChild(h("img", { src: src.thumb, alt: src.name, draggable: "false" }));
+        } else {
+          thumbDiv.appendChild(h("div", { className: "source-thumb-placeholder", "data-source-thumb": src.name }));
+        }
+        row.appendChild(thumbDiv);
+
+        row.appendChild(h("div", { className: `source-type-icon ${src.type}` },
+          src.type === "video" ? ICONS.film() : ICONS.image()
+        ));
+
+        row.appendChild(h("div", { className: "source-info" },
+          h("div", { className: "source-name", title: src.name }, src.name),
+          h("div", { className: "source-meta" },
+            h("strong", {}, `${src.frameCount}`), ` frame${src.frameCount !== 1 ? "s" : ""} \u00b7 `,
+            h("strong", {}, `${src.pairCount}`), ` pairs`,
+          ),
+        ));
+
+        row.appendChild(h("div", { className: "source-arrow" }, svgIcon('<polyline points="9 18 15 12 9 6"/>', 14)));
+        row.addEventListener("click", () => drillIntoSource(src.name));
+        inner.appendChild(row);
+      });
+
+      requestAnimationFrame(() => setupSourceThumbObserver());
+    }
+
+    function toggleSourceSelection(name) {
+      if (state.reviewSourceSelection.has(name)) {
+        state.reviewSourceSelection.delete(name);
+      } else {
+        state.reviewSourceSelection.add(name);
+      }
+      // Update checkbox UI in-place
+      const rows = document.querySelectorAll(".source-row[data-source]");
+      rows.forEach(row => {
+        const sName = row.getAttribute("data-source");
+        const cb = row.querySelector(".source-checkbox");
+        if (!cb) return;
+        if (state.reviewSourceSelection.has(sName)) {
+          cb.classList.add("checked");
+          if (!cb.querySelector("svg")) cb.appendChild(ICONS.check());
+        } else {
+          cb.classList.remove("checked");
+          cb.innerHTML = "";
+        }
+      });
+      // Re-render selection bar
+      const existingBar = document.querySelector(".source-selection-bar");
+      if (existingBar) existingBar.remove();
+      const existingModal = document.querySelector(".review-modal-overlay");
+      if (existingModal) existingModal.remove();
+      const view = document.querySelector(".source-list-view");
+      const listContainer = document.getElementById("source-list-container");
+      if (!view || !listContainer) return;
+
+      if (state.reviewSourceSelection.size > 0) {
+        listContainer.style.paddingBottom = "60px";
+        const selSources = state.reviewSourceFiles.filter(s => state.reviewSourceSelection.has(s.name));
+        const selFrames = selSources.reduce((sum, s) => sum + s.frameCount, 0);
+        const selPairs = selSources.reduce((sum, s) => sum + s.pairCount, 0);
+
+        view.appendChild(h("div", { className: "source-selection-bar" },
+          h("div", { className: "sel-info" },
+            h("strong", {}, `${state.reviewSourceSelection.size}`), ` source${state.reviewSourceSelection.size > 1 ? "s" : ""} \u00b7 `,
+            h("strong", {}, `${selFrames}`), ` frames \u00b7 `,
+            h("strong", {}, `${selPairs}`), ` pairs`,
+          ),
+          h("button", { className: "btn btn-secondary", onClick: () => {
+            state.reviewSourceSelection.clear();
+            render();
+          } }, "Cancel"),
+          h("button", { className: "btn btn-danger", onClick: () => {
+            state.reviewSourceShowModal = true;
+            render();
+          } }, "Delete Selected Sources"),
+        ));
+      } else {
+        listContainer.style.paddingBottom = "0";
+      }
+    }
+
+    function setupSourceThumbObserver() {
+      if (sourceThumbObserver) sourceThumbObserver.disconnect();
+      const container = document.getElementById("source-list-container");
+      if (!container) return;
+
+      const pending = new Set();
+      sourceThumbObserver = new IntersectionObserver((entries) => {
+        let needsLoad = false;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const name = entry.target.getAttribute("data-source-thumb");
+            if (name) { pending.add(name); needsLoad = true; }
+          }
+        }
+        if (needsLoad) {
+          const toLoad = [...pending];
+          pending.clear();
+          loadSourceThumbnails(toLoad);
+        }
+      }, { root: container, rootMargin: "100px" });
+
+      const placeholders = container.querySelectorAll("[data-source-thumb]");
+      placeholders.forEach(el => sourceThumbObserver.observe(el));
+    }
+
+    async function loadSourceThumbnails(sourceNames) {
+      if (sourceThumbsLoading || sourceNames.length === 0) return;
+      sourceThumbsLoading = true;
+
+      const sourcesToLoad = state.reviewSourceFiles.filter(s => sourceNames.includes(s.name) && !s.thumb);
+      if (sourcesToLoad.length === 0) { sourceThumbsLoading = false; return; }
+
+      try {
+        const { thumbnails } = await window.api.generateSourceThumbnails({
+          datasetDir: state.reviewDatasetDir,
+          sources: sourcesToLoad.map(s => ({ name: s.name, firstFrame: s.firstFrame })),
+        });
+
+        for (const [name, dataUri] of Object.entries(thumbnails)) {
+          const src = state.reviewSourceFiles.find(s => s.name === name);
+          if (src) src.thumb = dataUri;
+
+          const placeholder = document.querySelector(`[data-source-thumb="${CSS.escape(name)}"]`);
+          if (placeholder) {
+            const img = h("img", { src: dataUri, alt: name, draggable: "false" });
+            placeholder.parentNode.replaceChild(img, placeholder);
+          }
+        }
+      } catch (err) {
+        console.error("Source thumbnail load error:", err);
+      }
+
+      sourceThumbsLoading = false;
+    }
+
+    async function executeSourceDelete() {
+      state.reviewSourceShowModal = false;
+      const toDelete = [...state.reviewSourceSelection];
+
+      const result = await window.api.deleteSources({
+        datasetDir: state.reviewDatasetDir,
+        sourceNames: toDelete,
+      });
+
+      if (result.ok) {
+        const deletedSet = new Set(toDelete);
+        state.reviewSourceFiles = state.reviewSourceFiles.filter(s => !deletedSet.has(s.name));
+        state.reviewFrames = state.reviewFrames.filter(f => !deletedSet.has(f.sourceFile));
+        state.reviewSourceSelection.clear();
+        state.reviewTotalFrames = result.remainingFrames;
+        state.reviewTotalPairs = result.remainingPairs;
+        render();
+
+        const view = document.querySelector(".source-list-view");
+        if (view) {
+          const toast = h("div", { className: "review-toast" },
+            `Removed ${result.deletedSources} source${result.deletedSources > 1 ? "s" : ""}, ${result.deletedFrames} frames, and ${result.deletedPairs} pairs`
+          );
+          view.appendChild(toast);
+          setTimeout(() => toast.remove(), 3000);
+        }
+      } else {
+        alert("Delete failed: " + (result.error || "Unknown error"));
+      }
+    }
+
+    function drillIntoSource(sourceName) {
+      state.reviewActiveSource = sourceName;
+      state.reviewSelection.clear();
+      state.reviewLastClicked = null;
+      state.view = "review";
+      render();
+    }
+
+    // ── Review Contact Sheet (Level 2) ──
 
     let reviewObserver = null;
     let thumbLoadDebounce = null;
     let thumbsLoading = false;
 
+    function getVisibleFrames() {
+      if (!state.reviewActiveSource || state.reviewActiveSource === "__all__") {
+        return state.reviewFrames;
+      }
+      return state.reviewFrames.filter(f => f.sourceFile === state.reviewActiveSource);
+    }
+
     function renderReview(container) {
+      const visibleFrames = getVisibleFrames();
+      const visiblePairs = visibleFrames.reduce((sum, f) => sum + f.pairCount, 0);
       const view = h("div", { className: "review-view" });
 
-      // Toolbar
+      // Toolbar with breadcrumb
       const toolbar = h("div", { className: "review-toolbar" });
-      toolbar.appendChild(h("button", { className: "btn-back", onClick: () => {
-        state.view = state.reviewEntryPoint;
-        state.reviewFrames = [];
+
+      const breadcrumb = h("div", { className: "breadcrumb" });
+      breadcrumb.appendChild(h("button", { className: "breadcrumb-link", onClick: () => {
+        state.reviewActiveSource = null;
         state.reviewSelection.clear();
+        state.view = "review-sources";
         render();
-      } }, "\u2190 Back"));
+      } }, "\u2190 All Sources"));
+      breadcrumb.appendChild(h("span", { className: "breadcrumb-sep" }, "\u203A"));
+      const activeLabel = state.reviewActiveSource === "__all__" ? "All Frames" : (state.reviewActiveSource || "");
+      breadcrumb.appendChild(h("span", { className: "breadcrumb-current", title: activeLabel }, activeLabel));
+      toolbar.appendChild(breadcrumb);
 
       toolbar.appendChild(h("div", { className: "review-stats" },
-        h("strong", {}, `${state.reviewTotalFrames}`), ` frames \u00b7 `,
-        h("strong", {}, `${state.reviewTotalPairs}`), ` pairs`,
+        h("strong", {}, `${visibleFrames.length}`), ` frames \u00b7 `,
+        h("strong", {}, `${visiblePairs}`), ` pairs`,
       ));
 
       toolbar.appendChild(h("button", { className: "btn-sm", onClick: () => {
-        state.reviewFrames.forEach(f => state.reviewSelection.add(f.name));
+        visibleFrames.forEach(f => state.reviewSelection.add(f.name));
         updateReviewSelectionUI();
       } }, "Select All"));
 
@@ -1276,7 +1923,7 @@
       } }, "Select None"));
 
       toolbar.appendChild(h("button", { className: "btn-sm", onClick: () => {
-        state.reviewFrames.forEach(f => {
+        visibleFrames.forEach(f => {
           if (state.reviewSelection.has(f.name)) state.reviewSelection.delete(f.name);
           else state.reviewSelection.add(f.name);
         });
@@ -1294,7 +1941,7 @@
         const gridContainer = h("div", { className: "review-grid-container", id: "review-grid-container" });
         const grid = h("div", { className: "review-grid", id: "review-grid" });
 
-        state.reviewFrames.forEach((frame, i) => {
+        visibleFrames.forEach((frame, i) => {
           const isSelected = state.reviewSelection.has(frame.name);
           const cell = h("div", {
             className: `review-cell${isSelected ? " selected" : ""}`,
@@ -1457,14 +2104,14 @@
     }
 
     function handleCellClick(frameName, index, event) {
+      const visibleFrames = getVisibleFrames();
       if (event.shiftKey && state.reviewLastClicked !== null) {
-        // Range select
-        const lastIndex = state.reviewFrames.findIndex(f => f.name === state.reviewLastClicked);
+        const lastIndex = visibleFrames.findIndex(f => f.name === state.reviewLastClicked);
         if (lastIndex >= 0) {
           const start = Math.min(lastIndex, index);
           const end = Math.max(lastIndex, index);
           for (let i = start; i <= end; i++) {
-            state.reviewSelection.add(state.reviewFrames[i].name);
+            state.reviewSelection.add(visibleFrames[i].name);
           }
         }
       } else {
@@ -1541,16 +2188,18 @@
       });
 
       if (result.ok) {
-        // Remove deleted frames from state
         const deletedSet = new Set(framesToDelete);
         state.reviewFrames = state.reviewFrames.filter(f => !deletedSet.has(f.name));
         state.reviewSelection.clear();
         state.reviewLastClicked = null;
         state.reviewTotalFrames = result.remainingFrames;
         state.reviewTotalPairs = result.remainingPairs;
+
+        // Rebuild source file stats from remaining frames
+        rebuildSourceStats();
+
         render();
 
-        // Show toast
         const view = document.querySelector(".review-view");
         if (view) {
           const toast = h("div", { className: "review-toast" },
@@ -1562,6 +2211,27 @@
       } else {
         alert("Delete failed: " + (result.error || "Unknown error"));
       }
+    }
+
+    function rebuildSourceStats() {
+      const sourceMap = new Map();
+      for (const frame of state.reviewFrames) {
+        const sf = frame.sourceFile || "__unknown__";
+        if (!sourceMap.has(sf)) {
+          sourceMap.set(sf, { frameCount: 0, pairCount: 0 });
+        }
+        const entry = sourceMap.get(sf);
+        entry.frameCount++;
+        entry.pairCount += frame.pairCount;
+      }
+      // Update existing source entries; remove sources with 0 frames
+      state.reviewSourceFiles = state.reviewSourceFiles
+        .map(s => {
+          const stats = sourceMap.get(s.name);
+          if (!stats) return null;
+          return { ...s, frameCount: stats.frameCount, pairCount: stats.pairCount };
+        })
+        .filter(Boolean);
     }
 
     async function reviewExistingDataset() {
@@ -1584,9 +2254,13 @@
       state.reviewDatasetDir = dir;
       state.reviewLoading = true;
       state.reviewFrames = [];
+      state.reviewSourceFiles = [];
       state.reviewSelection.clear();
+      state.reviewSourceSelection.clear();
       state.reviewLastClicked = null;
-      state.view = "review";
+      state.reviewActiveSource = null;
+      state.reviewSourceSearch = "";
+      state.view = "review-sources";
       render();
 
       const result = await window.api.loadDataset(dir);
@@ -1594,6 +2268,7 @@
 
       if (result.ok) {
         state.reviewFrames = result.frames;
+        state.reviewSourceFiles = result.sourceFiles || [];
         state.reviewTotalPairs = result.totalPairs;
         state.reviewTotalFrames = result.totalFrames;
       } else {

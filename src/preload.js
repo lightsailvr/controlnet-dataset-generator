@@ -39,5 +39,7 @@ contextBridge.exposeInMainWorld("api", {
   selectDatasetDir: () => ipcRenderer.invoke("select-dataset-dir"),
   loadDataset: (dir) => ipcRenderer.invoke("load-dataset", dir),
   generateThumbnails: (payload) => ipcRenderer.invoke("generate-thumbnails", payload),
+  generateSourceThumbnails: (payload) => ipcRenderer.invoke("generate-source-thumbnails", payload),
   deleteFrames: (payload) => ipcRenderer.invoke("delete-frames", payload),
+  deleteSources: (payload) => ipcRenderer.invoke("delete-sources", payload),
 });
