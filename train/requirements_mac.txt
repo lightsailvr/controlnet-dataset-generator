@@ -1,0 +1,12 @@
+# SimpleTuner + Apple Silicon (MPS) dependencies
+# Install PyTorch first (ships with Metal/MPS support by default):
+#   pip3 install torch torchvision
+#
+# Then install SimpleTuner with Apple extras:
+#   pip3 install 'simpletuner[apple]'
+
+simpletuner[apple]
+torch>=2.2.0
+torchvision
+wandb
+pyyaml

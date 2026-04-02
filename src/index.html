@@ -617,6 +617,51 @@
       font-size: 14px;
     }
 
+    /* ── Training View ── */
+    .train-view { display: flex; flex-direction: column; }
+    .train-section {
+      background: var(--bg-raised); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px;
+    }
+    .train-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+    .train-hw-card { display: flex; align-items: center; gap: 12px; }
+    .train-hw-card .hw-platform { font-size: 14px; font-weight: 600; }
+    .train-hw-card .hw-detail { font-size: 12px; color: var(--text-dim); }
+    .train-stats-row {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 12px; margin: 16px 0;
+    }
+    .train-stat-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; text-align: center;
+    }
+    .train-stat-card .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px; font-weight: 600; color: var(--accent);
+    }
+    .train-stat-card .stat-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+    .train-chart-container {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; margin: 16px 0;
+    }
+    .train-chart-container canvas { width: 100%; height: 200px; display: block; }
+    .train-val-gallery { display: flex; gap: 12px; overflow-x: auto; padding: 8px 0; }
+    .train-val-item { flex-shrink: 0; text-align: center; }
+    .train-val-item img { height: 160px; border-radius: var(--radius); border: 1px solid var(--border); }
+    .train-val-item .val-step {
+      font-size: 10px; color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace; margin-top: 4px;
+    }
+    .train-log {
+      max-height: 200px; overflow-y: auto;
+      background: var(--bg-input); border-radius: var(--radius); padding: 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--text-dim); line-height: 1.6; margin-top: 12px;
+    }
+    .train-log.collapsed { max-height: 0; padding: 0; overflow: hidden; }
+    .train-actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
+    .train-locked { font-size: 11px; color: var(--text-muted); font-style: italic; margin-top: 4px; }
+
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -662,6 +707,23 @@
       reviewTotalFrames: 0,
       reviewShowModal: false,
       reviewEntryPoint: "setup",
+      // Training view
+      trainView: "config",
+      trainDatasetDir: null,
+      trainOutputDir: null,
+      trainConfig: {},
+      trainPlatform: null,
+      trainPreset: null,
+      trainGpuInfo: null,
+      trainDepStatus: "checking",
+      trainProgressFile: null,
+      trainProgress: null,
+      trainLossHistory: [],
+      trainValidationImages: [],
+      trainPollingInterval: null,
+      trainLog: [],
+      trainLogVisible: false,
+      trainEntryPoint: "setup",
     };
 
     // ── Helpers ──
@@ -733,6 +795,7 @@
       else if (state.view === "processing") renderProcessing(content);
       else if (state.view === "complete") renderComplete(content);
       else if (state.view === "review") renderReview(content);
+      else if (state.view === "train") renderTrain(content);
 
       app.appendChild(content);
     }
@@ -795,6 +858,7 @@
         h("button", { className: "btn btn-secondary", onClick: selectFiles }, ICONS.film(), " Select Files"),
         h("button", { className: "btn btn-secondary", onClick: selectFolder }, ICONS.folder(), " Select Folder"),
         h("button", { className: "btn btn-secondary", onClick: reviewExistingDataset, style: { marginLeft: "8px", borderColor: "var(--accent-dim)", color: "var(--accent)" } }, ICONS.image(), " Review Existing Dataset"),
+        h("button", { className: "btn btn-secondary", onClick: trainExistingDataset, style: { borderColor: "var(--accent-dim)", color: "var(--accent)" } }, ICONS.play(), " Train ControlNet"),
       ));
 
       container.appendChild(dropZone);
@@ -1097,6 +1161,7 @@
           if (state.outputDir) window.api.openFolder(state.outputDir);
         } }, ICONS.folderOpen(), " Open Output Folder"),
         h("button", { className: "btn btn-primary", onClick: () => openReviewFromComplete() }, ICONS.image(), " Review & Clean Dataset"),
+        h("button", { className: "btn btn-primary", onClick: () => openTrainFromComplete(), style: { background: "var(--video-color)" } }, ICONS.play(), " Train ControlNet"),
         h("button", { className: "btn btn-secondary", onClick: () => {
           state.view = "setup";
           state.files = [];
@@ -1536,6 +1601,513 @@
       render();
     }
 
+    // ── Training View ──
+
+    function renderTrain(container) {
+      const view = h("div", { className: "train-view" });
+
+      if (state.trainView === "config") renderTrainConfig(view);
+      else if (state.trainView === "preparing") renderTrainPreparing(view);
+      else if (state.trainView === "training") renderTrainDashboard(view);
+      else if (state.trainView === "complete") renderTrainComplete(view);
+
+      container.appendChild(view);
+    }
+
+    function renderTrainConfig(view) {
+      // Back button
+      view.appendChild(h("div", { style: { marginBottom: "12px" } },
+        h("button", { className: "btn btn-secondary", style: { padding: "6px 12px", fontSize: "12px" }, onClick: () => {
+          state.view = state.trainEntryPoint;
+          render();
+        } }, "\u2190 Back"),
+      ));
+
+      // Hardware detection
+      const hwSection = h("div", { className: "train-section" });
+      hwSection.appendChild(h("h3", {}, "Hardware"));
+      const dotClass = state.trainDepStatus === "ok" ? "ok" : state.trainDepStatus === "error" ? "error" : "checking";
+      hwSection.appendChild(h("div", { className: "train-hw-card" },
+        h("span", { className: `dep-dot ${dotClass}` }),
+        h("div", {},
+          h("div", { className: "hw-platform" },
+            state.trainPlatform
+              ? (state.trainGpuInfo || state.trainPlatform.toUpperCase())
+              : "Detecting hardware..."
+          ),
+          h("div", { className: "hw-detail" },
+            state.trainPreset
+              ? `Preset: ${state.trainPreset} \u00b7 SimpleTuner`
+              : "Checking dependencies..."
+          ),
+        ),
+      ));
+      if (state.trainDepStatus === "error") {
+        hwSection.appendChild(h("div", { className: "dep-details", style: { marginTop: "10px" } },
+          "SimpleTuner is not installed. See train/requirements_mac.txt or train/requirements_nvidia.txt"
+        ));
+      }
+      view.appendChild(hwSection);
+
+      // Preset selector
+      const presetSection = h("div", { className: "train-section" });
+      presetSection.appendChild(h("h3", {}, "Hardware Preset"));
+      const presetRadios = h("div", { className: "radio-group" });
+      [
+        ["mac_studio_m3_ultra", "M3 Ultra (256GB)"],
+        ["macbook_m4_max", "M4 Max (128GB)"],
+        ["wsl2_dual_a6000", "Dual A6000 (WSL2)"],
+      ].forEach(([val, label]) => {
+        presetRadios.appendChild(h("button", {
+          className: `radio-btn ${state.trainConfig.preset === val ? "active" : ""}`,
+          onClick: () => { state.trainConfig.preset = val; render(); },
+        }, label));
+      });
+      presetSection.appendChild(presetRadios);
+      view.appendChild(presetSection);
+
+      // Config editor
+      const configSection = h("div", { className: "train-section" });
+      configSection.appendChild(h("h3", {}, "Training Configuration"));
+      const grid = h("div", { className: "config-grid" });
+
+      // Resolution
+      const resGroup = h("div", { className: "config-group" });
+      resGroup.appendChild(h("label", {}, "Resolution ", h("span", { className: "label-hint" }, "must match Flux native for best quality")));
+      const resRadios = h("div", { className: "radio-group" });
+      [512, 768, 1024].forEach(v => {
+        resRadios.appendChild(h("button", {
+          className: `radio-btn ${(state.trainConfig.resolution || 1024) === v ? "active" : ""}`,
+          onClick: () => { state.trainConfig.resolution = v; render(); },
+        }, `${v}px`));
+      });
+      resGroup.appendChild(resRadios);
+      grid.appendChild(resGroup);
+
+      // Max steps
+      const stepsGroup = h("div", { className: "config-group" });
+      stepsGroup.appendChild(h("label", {}, "Max Training Steps"));
+      const stepsInput = h("input", { className: "num-input", type: "number",
+        value: String(state.trainConfig.max_train_steps || 50000) });
+      stepsInput.addEventListener("change", (e) => { state.trainConfig.max_train_steps = +e.target.value; });
+      stepsGroup.appendChild(stepsInput);
+      grid.appendChild(stepsGroup);
+
+      // Learning rate
+      const lrGroup = h("div", { className: "config-group" });
+      lrGroup.appendChild(h("label", {}, "Learning Rate"));
+      const lrInput = h("input", { className: "num-input", type: "text",
+        value: String(state.trainConfig.learning_rate || (state.trainConfig.preset === "wsl2_dual_a6000" ? "1e-5" : "3e-5")) });
+      lrInput.addEventListener("change", (e) => { state.trainConfig.learning_rate = parseFloat(e.target.value); });
+      lrGroup.appendChild(lrInput);
+      grid.appendChild(lrGroup);
+
+      // Checkpoint interval
+      const ckptGroup = h("div", { className: "config-group" });
+      ckptGroup.appendChild(h("label", {}, "Checkpoint Every N Steps"));
+      const ckptInput = h("input", { className: "num-input", type: "number",
+        value: String(state.trainConfig.checkpointing_steps || 2000) });
+      ckptInput.addEventListener("change", (e) => { state.trainConfig.checkpointing_steps = +e.target.value; });
+      ckptGroup.appendChild(ckptInput);
+      grid.appendChild(ckptGroup);
+
+      // Validation interval
+      const valGroup = h("div", { className: "config-group" });
+      valGroup.appendChild(h("label", {}, "Validation Every N Steps"));
+      const valInput = h("input", { className: "num-input", type: "number",
+        value: String(state.trainConfig.validation_steps || 500) });
+      valInput.addEventListener("change", (e) => { state.trainConfig.validation_steps = +e.target.value; });
+      valGroup.appendChild(valInput);
+      grid.appendChild(valGroup);
+
+      // Platform-locked info
+      const lockedGroup = h("div", { className: "config-group" });
+      const isMac = !state.trainConfig.preset || !state.trainConfig.preset.startsWith("wsl2");
+      lockedGroup.appendChild(h("div", { className: "train-locked" },
+        `Precision: bf16 (required) \u00b7 Optimizer: ${isMac ? "AdamW (MPS)" : "AdamW 8-bit (CUDA)"} \u00b7 Gradient checkpointing: on`
+      ));
+      grid.appendChild(lockedGroup);
+
+      configSection.appendChild(grid);
+      view.appendChild(configSection);
+
+      // Dataset + output dir
+      const dataSection = h("div", { className: "train-section" });
+      dataSection.appendChild(h("h3", {}, "Dataset"));
+      dataSection.appendChild(h("div", { className: "output-dir-row" },
+        h("span", { className: "output-dir-label" }, "Dataset:"),
+        h("span", { className: "output-dir-path" }, state.trainDatasetDir || "No dataset selected"),
+        h("button", { className: "btn btn-secondary", onClick: selectTrainDataset }, ICONS.folderOpen(), " Choose"),
+      ));
+      dataSection.appendChild(h("div", { className: "output-dir-row", style: { marginTop: "8px" } },
+        h("span", { className: "output-dir-label" }, "Output:"),
+        h("span", { className: "output-dir-path" }, state.trainOutputDir || "Auto (inside dataset)"),
+        h("button", { className: "btn btn-secondary", onClick: selectTrainOutputDir }, ICONS.folderOpen(), " Choose"),
+      ));
+      view.appendChild(dataSection);
+
+      // Start button
+      const canStart = state.trainDepStatus === "ok" && state.trainDatasetDir;
+      view.appendChild(h("div", { className: "train-actions" },
+        h("button", {
+          className: "btn btn-primary",
+          style: { fontSize: "14px", padding: "10px 24px" },
+          onClick: startTraining,
+          ...(canStart ? {} : { disabled: "true" }),
+        }, ICONS.play(), " Start Training"),
+      ));
+    }
+
+    function renderTrainPreparing(view) {
+      view.appendChild(h("div", { className: "train-section", style: { textAlign: "center", padding: "40px" } },
+        h("div", { className: "proc-spinner" }),
+        h("h2", { style: { marginTop: "16px" } }, "Preparing Dataset"),
+        h("p", { style: { color: "var(--text-dim)", marginTop: "8px" } }, "Converting to SimpleTuner format..."),
+      ));
+    }
+
+    function renderTrainDashboard(view) {
+      const p = state.trainProgress || {};
+      const step = p.current_step || 0;
+      const total = p.total_steps || 1;
+      const pct = total > 0 ? ((step / total) * 100) : 0;
+
+      // Header
+      view.appendChild(h("div", { className: "train-section" },
+        h("div", { style: { display: "flex", alignItems: "center", gap: "12px" } },
+          h("div", { className: "proc-spinner" }),
+          h("div", {},
+            h("h2", {}, "Training Flux ControlNet"),
+            h("p", { style: { color: "var(--text-dim)", fontSize: "13px" } },
+              `Step ${step.toLocaleString()} / ${total.toLocaleString()} \u00b7 `,
+              p.eta_seconds ? `ETA: ${formatTime(p.eta_seconds)}` : "Calculating..."
+            ),
+          ),
+        ),
+        h("div", { className: "progress-track", style: { marginTop: "12px" } },
+          h("div", { className: "progress-fill", style: { width: `${pct}%` } }),
+        ),
+      ));
+
+      // Stats row
+      view.appendChild(h("div", { className: "train-stats-row" },
+        trainStatCard("Loss", p.loss != null ? p.loss.toFixed(4) : "--"),
+        trainStatCard("LR", p.learning_rate != null ? p.learning_rate.toExponential(1) : "--"),
+        trainStatCard("Steps/s", p.steps_per_second != null ? p.steps_per_second.toFixed(2) : "--"),
+        trainStatCard("Elapsed", p.elapsed_seconds ? formatTime(p.elapsed_seconds) : "--"),
+      ));
+
+      // Loss chart
+      if (state.trainLossHistory.length > 1) {
+        const chartSection = h("div", { className: "train-chart-container" });
+        chartSection.appendChild(h("h3", { style: { fontSize: "12px", color: "var(--text-dim)", marginBottom: "8px" } }, "Loss Curve"));
+        const canvas = h("canvas", { id: "loss-chart", width: "800", height: "200" });
+        chartSection.appendChild(canvas);
+        view.appendChild(chartSection);
+        requestAnimationFrame(() => drawLossChart());
+      }
+
+      // Validation images
+      if (state.trainValidationImages.length > 0) {
+        const valSection = h("div", { className: "train-section" });
+        valSection.appendChild(h("h3", {}, "Validation Samples"));
+        const gallery = h("div", { className: "train-val-gallery" });
+        state.trainValidationImages.forEach(img => {
+          gallery.appendChild(h("div", { className: "train-val-item" },
+            h("img", { src: img.dataUri, alt: img.path }),
+            h("div", { className: "val-step" }, img.path),
+          ));
+        });
+        valSection.appendChild(gallery);
+        view.appendChild(valSection);
+      }
+
+      // Log toggle + log area
+      const logSection = h("div", { className: "train-section" });
+      logSection.appendChild(h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+        h("h3", { style: { margin: 0 } }, "Training Log"),
+        h("button", { className: "btn-text", onClick: () => { state.trainLogVisible = !state.trainLogVisible; render(); } },
+          state.trainLogVisible ? "Hide" : "Show"
+        ),
+      ));
+      if (state.trainLogVisible) {
+        const logEl = h("div", { className: "train-log", id: "train-log" });
+        state.trainLog.slice(-200).forEach(line => {
+          logEl.appendChild(h("div", {}, typeof line === "string" ? line : (line.message || JSON.stringify(line))));
+        });
+        logSection.appendChild(logEl);
+        requestAnimationFrame(() => {
+          const el = document.getElementById("train-log");
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      }
+      view.appendChild(logSection);
+
+      // Cancel button
+      view.appendChild(h("div", { className: "train-actions" },
+        h("button", { className: "btn btn-danger", onClick: cancelTraining }, ICONS.x(), " Cancel Training"),
+      ));
+    }
+
+    function renderTrainComplete(view) {
+      const p = state.trainProgress || {};
+      const checkIcon = h("div", { className: "complete-icon" });
+      checkIcon.appendChild(ICONS.check());
+      view.appendChild(h("div", { className: "train-section", style: { textAlign: "center" } },
+        checkIcon,
+        h("h2", {}, "Training Complete"),
+        h("div", { className: "train-stats-row", style: { maxWidth: "500px", margin: "16px auto" } },
+          trainStatCard("Steps", String(p.current_step || 0)),
+          trainStatCard("Final Loss", p.loss != null ? p.loss.toFixed(4) : "--"),
+          trainStatCard("Duration", p.elapsed_seconds ? formatTime(p.elapsed_seconds) : "--"),
+        ),
+        p.last_checkpoint ? h("p", { style: { color: "var(--text-dim)", fontSize: "12px", marginTop: "8px" } },
+          `Checkpoint: ${p.last_checkpoint}`
+        ) : null,
+        h("div", { className: "train-actions" },
+          h("button", { className: "btn btn-secondary", onClick: () => {
+            if (state.trainOutputDir) window.api.openFolder(state.trainOutputDir);
+          } }, ICONS.folderOpen(), " Open Output"),
+          h("button", { className: "btn btn-primary", onClick: () => {
+            state.trainView = "config";
+            render();
+          } }, "Train Again"),
+          h("button", { className: "btn btn-secondary", onClick: () => {
+            state.view = state.trainEntryPoint;
+            render();
+          } }, "Done"),
+        ),
+      ));
+    }
+
+    function trainStatCard(label, value) {
+      return h("div", { className: "train-stat-card" },
+        h("div", { className: "stat-value" }, value),
+        h("div", { className: "stat-label" }, label),
+      );
+    }
+
+    function formatTime(seconds) {
+      const hrs = Math.floor(seconds / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+      if (hrs > 0) return `${hrs}h ${mins}m`;
+      if (mins > 0) return `${mins}m ${secs}s`;
+      return `${secs}s`;
+    }
+
+    function drawLossChart() {
+      const canvas = document.getElementById("loss-chart");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width - 32;
+      canvas.height = 200;
+      const W = canvas.width, H = canvas.height;
+      const pad = { top: 10, right: 10, bottom: 25, left: 50 };
+
+      const data = state.trainLossHistory;
+      if (data.length < 2) return;
+
+      const steps = data.map(d => d[0]);
+      const losses = data.map(d => d[1]);
+      const minStep = steps[0], maxStep = steps[steps.length - 1];
+      const minLoss = Math.min(...losses) * 0.9;
+      const maxLoss = Math.max(...losses) * 1.1;
+
+      const xScale = (v) => pad.left + ((v - minStep) / (maxStep - minStep || 1)) * (W - pad.left - pad.right);
+      const yScale = (v) => pad.top + (1 - (v - minLoss) / (maxLoss - minLoss || 1)) * (H - pad.top - pad.bottom);
+
+      // Background
+      ctx.fillStyle = "#181c24";
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid lines
+      ctx.strokeStyle = "#262b36";
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (i / 4) * (H - pad.top - pad.bottom);
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+      }
+
+      // Axes labels
+      ctx.fillStyle = "#5c6478";
+      ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.textAlign = "right";
+      for (let i = 0; i <= 4; i++) {
+        const val = maxLoss - (i / 4) * (maxLoss - minLoss);
+        const y = pad.top + (i / 4) * (H - pad.top - pad.bottom);
+        ctx.fillText(val.toFixed(3), pad.left - 5, y + 3);
+      }
+      ctx.textAlign = "center";
+      ctx.fillText(String(minStep), xScale(minStep), H - 5);
+      ctx.fillText(String(maxStep), xScale(maxStep), H - 5);
+
+      // Loss line
+      ctx.strokeStyle = "#4ecdc4";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      data.forEach(([step, loss], i) => {
+        const x = xScale(step), y = yScale(loss);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    // ── Training Actions ──
+
+    async function selectTrainDataset() {
+      const result = await window.api.selectDatasetDir();
+      if (result && result.ok) {
+        state.trainDatasetDir = result.path;
+        render();
+      } else if (result && result.message) {
+        alert(result.message);
+      }
+    }
+
+    async function selectTrainOutputDir() {
+      const dir = await window.api.selectOutputDir();
+      if (dir) {
+        state.trainOutputDir = dir;
+        render();
+      }
+    }
+
+    async function trainExistingDataset() {
+      const result = await window.api.selectDatasetDir();
+      if (!result || result.error) {
+        if (result && result.message) alert(result.message);
+        return;
+      }
+      state.trainDatasetDir = result.path;
+      state.trainEntryPoint = "setup";
+      state.trainView = "config";
+      state.view = "train";
+      await detectTrainHardware();
+      render();
+    }
+
+    async function openTrainFromComplete() {
+      state.trainDatasetDir = state.outputDir;
+      state.trainEntryPoint = "complete";
+      state.trainView = "config";
+      state.view = "train";
+      await detectTrainHardware();
+      render();
+    }
+
+    async function detectTrainHardware() {
+      state.trainDepStatus = "checking";
+      try {
+        const hw = await window.api.detectHardware();
+        if (hw.ok) {
+          state.trainPlatform = hw.platform;
+          state.trainPreset = hw.preset;
+          state.trainGpuInfo = Array.isArray(hw.gpu_info) ? hw.gpu_info.join(", ") : hw.gpu_info;
+          state.trainConfig.preset = hw.preset;
+          state.trainDepStatus = "ok";
+        } else {
+          state.trainDepStatus = "error";
+        }
+      } catch {
+        state.trainDepStatus = "error";
+      }
+    }
+
+    async function startTraining() {
+      const preset = state.trainConfig.preset;
+      if (!preset || !state.trainDatasetDir) return;
+
+      // Build overrides from config
+      const overrides = {};
+      if (state.trainConfig.resolution) overrides.resolution = state.trainConfig.resolution;
+      if (state.trainConfig.max_train_steps) overrides.max_train_steps = state.trainConfig.max_train_steps;
+      if (state.trainConfig.learning_rate) overrides.learning_rate = state.trainConfig.learning_rate;
+      if (state.trainConfig.checkpointing_steps) overrides.checkpointing_steps = state.trainConfig.checkpointing_steps;
+      if (state.trainConfig.validation_steps) overrides.validation_steps = state.trainConfig.validation_steps;
+
+      // Prepare dataset first
+      state.trainView = "preparing";
+      state.trainLog = [];
+      state.trainLossHistory = [];
+      state.trainValidationImages = [];
+      render();
+
+      const prepResult = await window.api.prepareTrainingDataset({
+        datasetDir: state.trainDatasetDir,
+      });
+
+      if (!prepResult.ok) {
+        alert("Dataset preparation failed: " + (prepResult.error || "Unknown error"));
+        state.trainView = "config";
+        render();
+        return;
+      }
+
+      // Determine output dir
+      if (!state.trainOutputDir) {
+        const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        state.trainOutputDir = state.trainDatasetDir + "/training_output/" + ts;
+      }
+
+      // Start training
+      state.trainView = "training";
+      render();
+
+      const result = await window.api.startTraining({
+        datasetDir: state.trainDatasetDir,
+        preset: preset,
+        overrides: overrides,
+        outputDir: state.trainOutputDir,
+      });
+
+      if (result.ok) {
+        state.trainProgressFile = result.progressFile;
+        // Start polling
+        state.trainPollingInterval = setInterval(() => pollTrainingProgress(), 3000);
+      } else {
+        alert("Training failed to start: " + (result.error || "Unknown error"));
+        state.trainView = "config";
+        render();
+      }
+    }
+
+    async function pollTrainingProgress() {
+      if (!state.trainProgressFile) return;
+      const result = await window.api.getTrainingProgress(state.trainProgressFile);
+      if (!result.ok) return;
+
+      state.trainProgress = result;
+
+      // Update loss history
+      if (result.loss_history) {
+        state.trainLossHistory = result.loss_history;
+      }
+
+      // Update validation images
+      if (result.validation_images_loaded) {
+        state.trainValidationImages = result.validation_images_loaded;
+      }
+
+      // Check if done
+      if (result.status === "complete" || result.status === "error" || result.status === "cancelled") {
+        clearInterval(state.trainPollingInterval);
+        state.trainPollingInterval = null;
+        state.trainView = result.status === "complete" ? "complete" : "config";
+      }
+
+      render();
+    }
+
+    async function cancelTraining() {
+      clearInterval(state.trainPollingInterval);
+      state.trainPollingInterval = null;
+      await window.api.cancelTraining();
+      state.trainView = "config";
+      render();
+    }
+
     // ── IPC Listeners ──
 
     window.api.onProcessLog((line) => {
@@ -1564,6 +2136,27 @@
           ? "Processing finished (no results file found)"
           : `Process exited with code ${code}`
         );
+      }
+      render();
+    });
+
+    // Training log listener
+    window.api.onTrainingLog((line) => {
+      try {
+        const event = JSON.parse(line);
+        state.trainLog.push(event);
+      } catch {
+        state.trainLog.push(line);
+      }
+      // Keep log bounded
+      if (state.trainLog.length > 500) state.trainLog = state.trainLog.slice(-500);
+    });
+
+    window.api.onTrainingComplete(({ code }) => {
+      clearInterval(state.trainPollingInterval);
+      state.trainPollingInterval = null;
+      if (code === 0) {
+        state.trainView = "complete";
       }
       render();
     });

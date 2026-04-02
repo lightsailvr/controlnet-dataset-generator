@@ -1,0 +1,18 @@
+# SimpleTuner + NVIDIA CUDA dependencies (install inside WSL2)
+# Install PyTorch with CUDA support first:
+#   pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#
+# Flash Attention requires a CUDA compiler:
+#   pip3 install flash-attn --no-build-isolation
+#
+# Then install SimpleTuner:
+#   pip3 install simpletuner
+
+simpletuner
+torch>=2.2.0
+torchvision
+bitsandbytes
+flash-attn
+deepspeed
+wandb
+pyyaml
