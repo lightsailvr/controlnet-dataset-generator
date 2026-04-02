@@ -1,0 +1,10 @@
+torch>=2.2.0
+torchvision
+diffusers>=0.37.0
+transformers
+accelerate
+peft
+safetensors
+datasets
+sentencepiece
+protobuf

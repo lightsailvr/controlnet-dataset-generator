@@ -137,7 +137,6 @@ ipcMain.handle("select-output-dir", async () => {
 let pythonProcess = null;
 
 function findPython() {
-  // Try common Python 3 paths on macOS
   const candidates = [
     "python3",
     "/usr/local/bin/python3",
@@ -162,6 +161,14 @@ function findPython() {
     }
   }
   return null;
+}
+
+function findTrainingPython() {
+  const venvPython = path.join(__dirname, "..", ".venv", "bin", "python");
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+  return findPython();
 }
 
 ipcMain.handle("check-dependencies", async () => {
@@ -600,5 +607,196 @@ ipcMain.handle("delete-frames", async (event, { datasetDir, frameNames }) => {
     };
   } catch (err) {
     return { ok: false, error: err.message };
+  }
+});
+
+// ─── Training Pipeline ───
+
+let trainingProcess = null;
+
+ipcMain.handle("install-training-deps", async () => {
+  const pythonPath = findTrainingPython();
+  if (!pythonPath) return { ok: false, error: "Python 3 not found" };
+
+  // Determine which requirements file to use
+  const isMac = process.platform === "darwin";
+  const reqFile = isMac ? "requirements_mac.txt" : "requirements_nvidia.txt";
+  const reqPath = path.join(__dirname, "..", "train", reqFile);
+
+  if (!fs.existsSync(reqPath)) {
+    return { ok: false, error: `Requirements file not found: ${reqFile}` };
+  }
+
+  const proc = spawn(pythonPath, ["-m", "pip", "install", "-r", reqPath], {
+    env: { ...process.env, PYTHONUNBUFFERED: "1" },
+  });
+
+  proc.stdout.on("data", (data) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      mainWindow?.webContents.send("training-log", line);
+    }
+  });
+  proc.stderr.on("data", (data) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      mainWindow?.webContents.send("training-log", line);
+    }
+  });
+
+  return new Promise((resolve) => {
+    proc.on("close", (code) => {
+      resolve({ ok: code === 0, error: code !== 0 ? `pip exited with code ${code}` : null });
+    });
+  });
+});
+
+ipcMain.handle("detect-hardware", async () => {
+  const pythonPath = findTrainingPython();
+  if (!pythonPath) return { ok: false, error: "python3_not_found" };
+
+  const scriptPath = path.join(__dirname, "..", "train", "train_controlnet.py");
+  try {
+    const result = require("child_process").execSync(
+      `${pythonPath} ${scriptPath} --detect-hardware`,
+      { timeout: 30000 }
+    );
+    return { ok: true, ...JSON.parse(result.toString().trim()) };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle("prepare-training-dataset", async (event, { datasetDir, caption }) => {
+  const pythonPath = findTrainingPython();
+  if (!pythonPath) return { ok: false, error: "Python 3 not found" };
+
+  const scriptPath = path.join(__dirname, "..", "train", "prepare_dataset.py");
+  const args = [scriptPath, datasetDir];
+  if (caption) args.push("--caption", caption);
+
+  const proc = spawn(pythonPath, args, {
+    env: { ...process.env, PYTHONUNBUFFERED: "1" },
+  });
+
+  let lastLine = "";
+  proc.stdout.on("data", (data) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      lastLine = line;
+      mainWindow?.webContents.send("training-log", line);
+    }
+  });
+  proc.stderr.on("data", (data) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      mainWindow?.webContents.send("training-log", `[stderr] ${line}`);
+    }
+  });
+
+  return new Promise((resolve) => {
+    proc.on("close", (code) => {
+      if (code === 0) {
+        try {
+          resolve({ ok: true, ...JSON.parse(lastLine) });
+        } catch {
+          resolve({ ok: true });
+        }
+      } else {
+        resolve({ ok: false, error: `Process exited with code ${code}` });
+      }
+    });
+  });
+});
+
+ipcMain.handle("start-training", async (event, { datasetDir, preset, overrides, outputDir }) => {
+  const pythonPath = findTrainingPython();
+  if (!pythonPath) return { ok: false, error: "Python 3 not found" };
+
+  const scriptPath = path.join(__dirname, "..", "train", "train_controlnet.py");
+
+  // Write temp job file
+  const jobFile = path.join(os.tmpdir(), `train_job_${Date.now()}.json`);
+  fs.writeFileSync(jobFile, JSON.stringify({
+    dataset_dir: datasetDir,
+    preset: preset,
+    overrides: overrides || {},
+    output_dir: outputDir,
+  }));
+
+  trainingProcess = spawn(pythonPath, [scriptPath, "--job-file", jobFile], {
+    env: { ...process.env, PYTHONUNBUFFERED: "1" },
+  });
+
+  trainingProcess.stdout.on("data", (data) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      mainWindow?.webContents.send("training-log", line);
+    }
+  });
+
+  trainingProcess.stderr.on("data", (data) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      mainWindow?.webContents.send("training-log", `[stderr] ${line}`);
+    }
+  });
+
+  trainingProcess.on("close", (code) => {
+    mainWindow?.webContents.send("training-complete", { code });
+    try { fs.unlinkSync(jobFile); } catch {}
+    trainingProcess = null;
+  });
+
+  const progressFile = outputDir
+    ? path.join(outputDir, "training_progress.json")
+    : null;
+
+  return { ok: true, progressFile };
+});
+
+ipcMain.handle("cancel-training", async () => {
+  if (trainingProcess) {
+    trainingProcess.kill("SIGTERM");
+    trainingProcess = null;
+    return { ok: true };
+  }
+  return { ok: false };
+});
+
+ipcMain.handle("get-training-progress", async (event, progressFile) => {
+  if (!progressFile || !fs.existsSync(progressFile)) {
+    return { ok: false, error: "Progress file not found" };
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(progressFile, "utf-8"));
+
+    // Load validation images as base64
+    if (data.validation_images && data.validation_images.length > 0) {
+      const loaded = [];
+      for (const imgPath of data.validation_images.slice(-8)) {
+        const fullPath = path.isAbsolute(imgPath)
+          ? imgPath
+          : path.join(path.dirname(progressFile), imgPath);
+        if (fs.existsSync(fullPath)) {
+          try {
+            const img = nativeImage.createFromPath(fullPath);
+            if (!img.isEmpty()) {
+              const resized = img.resize({ height: 256 });
+              const buf = resized.toJPEG(80);
+              loaded.push({
+                path: imgPath,
+                dataUri: `data:image/jpeg;base64,${buf.toString("base64")}`,
+              });
+            }
+          } catch {}
+        }
+      }
+      data.validation_images_loaded = loaded;
+    }
+
+    return { ok: true, ...data };
+  } catch (e) {
+    return { ok: false, error: e.message };
   }
 });
