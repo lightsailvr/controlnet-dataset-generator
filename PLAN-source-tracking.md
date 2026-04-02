@@ -2,7 +2,7 @@
 
 ## Problem
 
-When training on multiple video files, the review grid shows a **flat list of all frames** across every source. As the dataset grows, this list becomes unmanageably long and there is no way to review or curate frames from each video independently.
+When training on multiple video files, the review grid shows a **flat list of all frames** across every source. As the dataset grows (hundreds of video files), this list becomes unmanageably long and there is no way to review or curate frames from each video independently.
 
 ## Current State
 
@@ -11,97 +11,102 @@ When training on multiple video files, the review grid shows a **flat list of al
 - `load-dataset` returns `sourceFile` per frame but the UI ignores it
 - The review grid renders all frames in a single flat grid with no grouping or filtering
 
-## Proposed Solution
+## Proposed Solution: Drill-Down (Master → Detail)
 
-Add a **source file navigator** to the review view that groups frames by their origin video/image file and lets you review each source independently.
+The review view becomes **two levels**:
+
+### Level 1 — Source File List
+
+The new landing page for review. A searchable, sortable list of all source files with thumbnails:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ← Back        3 sources · 124 frames · 1,240 pairs         │
+├──────────────────────────────────────────────────────────────┤
+│  🔍 Search sources...           Sort: Name ▾                 │
+├──────────────────────────────────────────────────────────────┤
+│  ☐ [All Frames]                    124 frames · 1,240 pairs  │
+│  ──────────────────────────────────────────────────────────  │
+│  ☐ [thumb] 🎬 beach_360.mov        47 frames ·   470 pairs  │
+│  ☐ [thumb] 🎬 cliff_walk.mp4       32 frames ·   320 pairs  │
+│  ☐ [thumb] 🖼 sunset_pano.jpg       1 frame  ·    10 pairs  │
+│  ... (scrollable, hundreds of rows)                          │
+└──────────────────────────────────────────────────────────────┘
+│  ☐ 2 sources selected · 79 frames · 790 pairs    [Delete]   │  (selection bar)
+└──────────────────────────────────────────────────────────────┘
+```
+
+Features:
+- **Thumbnail preview**: First frame from each source displayed inline
+- **Type icon**: Film strip for video, image icon for stills
+- **Search field**: Filter source list by filename
+- **Sort controls**: By name, frame count, or pair count
+- **Multi-select checkboxes**: Select entire sources for bulk delete
+- **Source-level bulk delete**: Delete all frames from selected sources without drilling in
+- **"All Frames" entry**: Top row drills into the existing flat contact sheet
+
+### Level 2 — Contact Sheet (Per-Source)
+
+Click a source row → existing contact sheet grid, scoped to that single source.
+
+Breadcrumb navigation: `All Sources › beach_360.mov`
+
+Back button returns to Level 1 with updated stats.
 
 ---
 
+## Implementation Details
+
 ### 1. Backend — `load-dataset` response enrichment (`src/main.js`)
 
-Modify the `load-dataset` IPC handler to also return a `sourceFiles` summary:
+Modify the `load-dataset` IPC handler to return a `sourceFiles` summary:
 
-```
+```js
 sourceFiles: [
   {
-    name: "beach_360.mov",       // original filename
-    type: "video",               // "video" | "image"
-    frameCount: 47,              // unique frames from this source
-    pairCount: 470,              // total conditioning pairs
-  },
-  {
-    name: "sunset_pano.jpg",
-    type: "image",
-    frameCount: 1,
-    pairCount: 10,
+    name: "beach_360.mov",
+    type: "video",
+    frameCount: 47,
+    pairCount: 470,
+    firstFrame: "beach_360_frame_000001",  // for thumbnail
   },
   ...
 ]
 ```
 
-The existing `frames` array continues to be returned as-is (each frame already carries `sourceFile`). No breaking changes.
+### 2. Backend — `generate-source-thumbnails` IPC handler (`src/main.js`)
 
-### 2. UI — Source file navigator (`src/index.html`)
+New handler to generate thumbnails for source file preview (uses the first frame's target image).
 
-Add a **horizontally scrollable strip of source-file tabs** between the toolbar and the grid:
+### 3. Backend — `delete-sources` IPC handler (`src/main.js`)
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  ← Back     47 frames · 470 pairs     Select All / None     │  toolbar
-├──────────────────────────────────────────────────────────────┤
-│  [All (124)] [beach_360.mov (47)] [cliff_walk.mp4 (32)] ... │  source tabs
-├──────────────────────────────────────────────────────────────┤
-│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐  │
-│  │     │ │     │ │     │ │     │ │     │ │     │ │     │  │  grid (filtered)
-│  └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘  │
-│  ...                                                         │
-└──────────────────────────────────────────────────────────────┘
-```
+New handler that deletes all frames/pairs/metadata for given source files. Reuses the same cleanup logic as `delete-frames` but scoped by `source_file`.
 
-Each tab shows:
-- **Type icon** (film strip for video, image icon for still)
-- **Filename** (truncated with ellipsis if long)
-- **Frame count** badge
+### 4. UI — Source List View (`src/index.html`)
 
-Clicking a tab filters the grid to only show frames from that source. The **"All"** tab restores the flat view.
+New `renderReviewSources()` function for Level 1:
+- State: `reviewSourceFiles`, `reviewActiveSource`, `reviewSourceSelection`, `reviewSourceSearch`, `reviewSourceSort`
+- View transitions: `review-sources` (Level 1) ↔ `review` (Level 2)
+- Lazy-loaded thumbnails via IntersectionObserver (same pattern as contact sheet)
 
-**Styling:**
-- Horizontal scrollable row with subtle left/right fade if overflow
-- Active tab: accent-colored border/background matching the existing `.radio-btn.active` style
-- Tab type icon colored using existing `--video-color` / `--image-color` tokens
+### 5. UI — Filtered Contact Sheet (`src/index.html`)
 
-### 3. State changes (`src/index.html`)
+Modify `renderReview()` for Level 2:
+- Filter `reviewFrames` by `reviewActiveSource` when set
+- Breadcrumb showing `All Sources › filename`
+- Back button returns to `review-sources` with refreshed stats
+- "All Frames" mode: `reviewActiveSource = "__all__"`
 
-Add to the `state` object:
+### 6. Selection & Delete Behavior
 
-```js
-reviewSourceFiles: [],         // Array of { name, type, frameCount, pairCount }
-reviewActiveSource: null,      // null = "All", or source filename string
-```
-
-### 4. Grid filtering logic
-
-When rendering the review grid:
-- If `reviewActiveSource` is `null`, show all frames (current behavior)
-- If set to a filename, filter: `state.reviewFrames.filter(f => f.sourceFile === state.reviewActiveSource)`
-
-The toolbar stats update to reflect the **visible** frame/pair count, with a secondary indicator showing totals when filtered.
-
-### 5. Selection behavior
-
-| Action | Scope |
-|--------|-------|
-| Select All / None / Invert | Applies only to **visible** (filtered) frames |
-| Selection state | **Persists** across source tab switches — selecting frames in video A, switching to video B, and selecting more frames there accumulates selections |
-| Selection bar count | Shows **total** selected count across all sources |
-| Delete | Deletes all selected frames regardless of which source tab is active |
-
-This lets you review source A, select bad frames, switch to source B, select more, then delete everything in one batch.
-
-### 6. Keyboard navigation (optional enhancement)
-
-- **Left/Right arrow keys** when no cell is focused: switch between source tabs
-- Existing Shift+click range-select continues to work within the visible grid
+| Context | Selection Scope |
+|---------|----------------|
+| Source list (Level 1) | Select entire source files via checkboxes |
+| Contact sheet (Level 2) | Select individual frames (existing behavior) |
+| Source-level delete | Removes all frames/pairs for selected sources |
+| Frame-level delete | Removes selected frames (existing behavior) |
+| Back navigation | Source list stats refresh to reflect deletions |
+| Empty sources | Disappear from list after all frames deleted |
 
 ---
 
@@ -109,23 +114,19 @@ This lets you review source A, select bad frames, switch to source B, select mor
 
 | File | Change |
 |------|--------|
-| `src/main.js` | Enrich `load-dataset` response with `sourceFiles` array |
-| `src/index.html` | Add source tab strip, state fields, filtering logic, updated stats |
-| `src/preload.js` | No changes needed — existing IPC surface is sufficient |
-| `python/equirect_dataset_generator.py` | No changes needed — already writes `source_file` in pairs |
-
-## Risks & Considerations
-
-- **Single-image sources**: When source is a still image (not video), it produces only 1 frame. The tab strip handles this naturally — single-frame tabs are just small.
-- **Many source files**: If 20+ files are loaded, the tab strip scrolls horizontally. Could add a collapse/dropdown if this becomes unwieldy, but horizontal scroll is sufficient for the common case.
-- **Backward compatibility**: Old datasets already have `source_file` in `pairs.json`, so this works retroactively on existing datasets.
-- **Performance**: Filtering is in-memory on the already-loaded frame array. Thumbnail lazy-loading via `IntersectionObserver` continues to work since it triggers on DOM visibility, and filtered-out cells aren't rendered.
+| `src/main.js` | Enrich `load-dataset`, add `generate-source-thumbnails`, add `delete-sources` |
+| `src/preload.js` | Expose new IPC handlers |
+| `src/index.html` | Source list view, state fields, drill-down navigation, sort/search/filter |
+| `python/equirect_dataset_generator.py` | No changes needed |
 
 ## Implementation Order
 
-1. Enrich `load-dataset` backend response with `sourceFiles`
-2. Add state fields and source tab strip UI
-3. Wire up tab click → filter grid
-4. Update toolbar stats to reflect filtered view
-5. Scope Select All/None/Invert to visible frames
-6. Test with multi-video dataset and single-image sources
+1. Backend: Enrich `load-dataset` with `sourceFiles`
+2. Backend: Add `generate-source-thumbnails` and `delete-sources` IPC handlers
+3. Preload: Expose new handlers
+4. UI: Source list view with thumbnails, search, sort
+5. UI: Source-level multi-select and bulk delete
+6. UI: Drill-down to filtered contact sheet with breadcrumb nav
+7. UI: Stats refresh on back-navigation, empty source cleanup
+8. UI: "All Frames" entry point
+9. Test with multi-source dataset
