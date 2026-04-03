@@ -17,9 +17,11 @@ import glob
 import json
 import os
 import platform
+import queue
 import re
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -279,6 +281,21 @@ def run_training(dataset_dir, preset, overrides=None, output_dir=None):
     last_checkpoint = None
     last_step = 0
     start_time = time.time()
+    phase = "loading"
+    phase_detail = "Loading model weights..."
+    preprocess_progress = None
+
+    _LOAD_HINTS = re.compile(
+        r"loading|downloading|fetching|tokenizer|text.encoder|vae|transformer|"
+        r"controlnet|accelerat|convert|shard|safetensor|checkpoint|config\.json|"
+        r"model\.safetensors|Running training",
+        re.IGNORECASE,
+    )
+    _TRAINING_START = re.compile(r"Running training|\*{3,}.*training", re.IGNORECASE)
+    _MAP_PATTERN = re.compile(
+        r"(?:Map|Filter|Tokeniz|Encod|Preprocess)\S*\s+(\d+)%\|.*?\|\s*([\d,]+)/([\d,]+)",
+        re.IGNORECASE,
+    )
 
     try:
         proc = subprocess.Popen(
@@ -286,16 +303,92 @@ def run_training(dataset_dir, preset, overrides=None, output_dir=None):
             env=env, bufsize=1, universal_newlines=True
         )
 
-        for line in proc.stdout:
+        line_queue = queue.Queue()
+        def _reader():
+            for ln in proc.stdout:
+                line_queue.put(ln)
+            line_queue.put(None)
+        threading.Thread(target=_reader, daemon=True).start()
+
+        last_heartbeat = 0
+        HEARTBEAT_INTERVAL = 5
+
+        while True:
+            try:
+                line = line_queue.get(timeout=1)
+            except queue.Empty:
+                now = time.time()
+                if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                    last_heartbeat = now
+                    elapsed = now - start_time
+                    if phase == "training":
+                        status_str = "training"
+                    elif phase == "preprocessing":
+                        status_str = "preprocessing"
+                    else:
+                        status_str = "loading"
+                    _write_progress(
+                        output_dir, status=status_str,
+                        current_step=last_step, total_steps=total_steps,
+                        loss_history=loss_history, last_checkpoint=last_checkpoint,
+                        validation_images=validation_images,
+                        elapsed_seconds=round(elapsed),
+                        platform=platform_name, preset=preset_name,
+                        phase=phase, phase_detail=phase_detail,
+                        preprocess_progress=preprocess_progress,
+                    )
+                continue
+
+            if line is None:
+                break
+
             line = line.rstrip()
             if not line:
                 continue
 
             print(json.dumps({"type": "log", "message": line}), flush=True)
 
+            # Detect Map/preprocessing progress (runs before training starts)
+            map_m = _MAP_PATTERN.search(line)
+            if map_m:
+                pct = int(map_m.group(1))
+                current = int(map_m.group(2).replace(",", ""))
+                total_map = int(map_m.group(3).replace(",", ""))
+                phase = "preprocessing"
+                phase_detail = f"Preprocessing dataset: {current:,}/{total_map:,} examples ({pct}%)"
+                preprocess_progress = {"current": current, "total": total_map, "pct": pct}
+
+                elapsed = time.time() - start_time
+                _write_progress(
+                    output_dir, status="preprocessing",
+                    current_step=last_step, total_steps=total_steps,
+                    loss_history=loss_history, last_checkpoint=last_checkpoint,
+                    validation_images=validation_images,
+                    elapsed_seconds=round(elapsed),
+                    platform=platform_name, preset=preset_name,
+                    phase=phase, phase_detail=phase_detail,
+                    preprocess_progress=preprocess_progress,
+                )
+                continue
+
+            if phase in ("loading", "preprocessing"):
+                hint = _LOAD_HINTS.search(line)
+                if hint and phase == "loading":
+                    snippet = line.strip()
+                    if len(snippet) > 80:
+                        snippet = snippet[:77] + "..."
+                    phase_detail = snippet
+                if _TRAINING_START.search(line):
+                    phase = "training"
+                    phase_detail = None
+                    preprocess_progress = None
+
             # Parse tqdm-style progress
             m = _TQDM_PATTERN.search(line)
             if m:
+                phase = "training"
+                phase_detail = None
+                preprocess_progress = None
                 step = int(m.group(1))
                 total = int(m.group(2))
                 loss = float(m.group(3))
@@ -347,7 +440,6 @@ def run_training(dataset_dir, preset, overrides=None, output_dir=None):
                 if step > last_step:
                     last_step = step
                     loss_m = _LOSS_ONLY.search(line)
-                    lr_m = _LR_ONLY.search(line)
                     loss_val = float(loss_m.group(1)) if loss_m else None
                     if loss_val is not None:
                         loss_history.append([step, loss_val])
@@ -417,6 +509,9 @@ def _write_progress(output_dir, **kwargs):
         "platform": kwargs.get("platform"),
         "preset": kwargs.get("preset"),
         "error_message": kwargs.get("error_message"),
+        "phase": kwargs.get("phase"),
+        "phase_detail": kwargs.get("phase_detail"),
+        "preprocess_progress": kwargs.get("preprocess_progress"),
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -344,6 +344,13 @@
       height: 100%; background: var(--accent);
       border-radius: 3px; transition: width 0.3s ease;
     }
+    @keyframes loadingPulse {
+      0%, 100% { opacity: 0.08; }
+      50% { opacity: 0.25; }
+    }
+    .progress-fill.loading-pulse {
+      animation: loadingPulse 2s ease-in-out infinite;
+    }
 
     .log-window {
       background: var(--bg-raised);
@@ -842,24 +849,6 @@
     .train-hw-card { display: flex; align-items: center; gap: 12px; }
     .train-hw-card .hw-platform { font-size: 14px; font-weight: 600; }
     .train-hw-card .hw-detail { font-size: 12px; color: var(--text-dim); }
-    .train-stats-row {
-      display: grid; grid-template-columns: repeat(4, 1fr);
-      gap: 12px; margin: 16px 0;
-    }
-    .train-stat-card {
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 12px; text-align: center;
-    }
-    .train-stat-card .stat-value {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 20px; font-weight: 600; color: var(--accent);
-    }
-    .train-stat-card .stat-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
-    .train-chart-container {
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 16px; margin: 16px 0;
-    }
-    .train-chart-container canvas { width: 100%; height: 200px; display: block; }
     .train-val-gallery { display: flex; gap: 12px; overflow-x: auto; padding: 8px 0; }
     .train-val-item { flex-shrink: 0; text-align: center; }
     .train-val-item img { height: 160px; border-radius: var(--radius); border: 1px solid var(--border); }
@@ -867,13 +856,55 @@
       font-size: 10px; color: var(--text-muted);
       font-family: 'JetBrains Mono', monospace; margin-top: 4px;
     }
-    .train-log {
-      max-height: 200px; overflow-y: auto;
-      background: var(--bg-input); border-radius: var(--radius); padding: 12px;
-      font-family: 'JetBrains Mono', monospace; font-size: 11px;
-      color: var(--text-dim); line-height: 1.6; margin-top: 12px;
+    .train-log-panel { margin-top: 12px; }
+    .train-log-toolbar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 0; flex-wrap: wrap;
     }
-    .train-log.collapsed { max-height: 0; padding: 0; overflow: hidden; }
+    .train-log-toolbar .log-filter-btn {
+      padding: 3px 8px; border-radius: 4px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text-muted); font-family: inherit; font-size: 10px;
+      cursor: pointer; transition: all 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .train-log-toolbar .log-filter-btn:hover { border-color: var(--border-hover); color: var(--text-dim); }
+    .train-log-toolbar .log-filter-btn.active {
+      background: var(--accent-dim); color: var(--accent); border-color: rgba(78,205,196,0.3);
+    }
+    .train-log-toolbar .log-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--text-muted);
+      margin-left: auto;
+    }
+    .train-log-toolbar .log-action-btn {
+      padding: 2px 6px; border-radius: 4px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text-muted); font-size: 10px; font-family: inherit;
+      cursor: pointer; -webkit-app-region: no-drag;
+    }
+    .train-log-toolbar .log-action-btn:hover { color: var(--text-dim); border-color: var(--border-hover); }
+    .train-log {
+      overflow-y: auto;
+      background: #0a0c10; border-radius: var(--radius); padding: 10px 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--text-dim); line-height: 1.7;
+      border: 1px solid #1a1e28;
+      transition: max-height 0.3s ease;
+    }
+    .train-log.compact { max-height: 200px; }
+    .train-log.expanded { max-height: 60vh; }
+    .train-log .log-line { display: flex; gap: 8px; padding: 1px 0; }
+    .train-log .log-ts {
+      flex-shrink: 0; color: #3a4052; font-size: 10px; min-width: 52px;
+      user-select: none;
+    }
+    .train-log .log-msg { flex: 1; word-break: break-word; }
+    .train-log .log-line.log-error .log-msg { color: var(--danger); }
+    .train-log .log-line.log-progress .log-msg { color: var(--accent); opacity: 0.7; }
+    .train-log .log-line.log-stderr .log-msg { color: var(--video-color); }
+    .train-log .log-line.log-info .log-msg { color: var(--text-dim); }
+    .train-log .log-line.log-loading .log-msg { color: var(--image-color); opacity: 0.8; }
     .train-actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
     .train-locked { font-size: 11px; color: var(--text-muted); font-style: italic; margin-top: 4px; }
 
@@ -903,6 +934,148 @@
       font-family: 'JetBrains Mono', monospace;
       font-size: 10px; color: var(--text-dim);
     }
+
+    /* ── Radial Progress Ring ── */
+    .radial-ring-wrapper {
+      display: flex; align-items: center; gap: 24px;
+      padding: 8px 0 4px;
+    }
+    .radial-ring-wrapper svg { flex-shrink: 0; }
+    .radial-ring-wrapper .ring-stats {
+      flex: 1; display: flex; flex-direction: column; gap: 2px;
+    }
+    .radial-ring-wrapper .ring-step {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 28px; font-weight: 700; color: var(--accent);
+      line-height: 1;
+    }
+    .radial-ring-wrapper .ring-total {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; color: var(--text-muted);
+    }
+    .radial-ring-wrapper .ring-eta {
+      font-size: 12px; color: var(--text-dim); margin-top: 4px;
+    }
+    @keyframes ringPulse {
+      0%, 100% { opacity: 0.7; r: 4; }
+      50% { opacity: 1; r: 6; }
+    }
+    .ring-glow-dot { animation: ringPulse 2s ease-in-out infinite; }
+
+    /* ── Convergence Gauge ── */
+    .convergence-gauge-wrap {
+      grid-column: span 2;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; text-align: center;
+    }
+    .convergence-gauge-wrap .gauge-label {
+      font-size: 11px; color: var(--text-dim); margin-top: 4px;
+    }
+    .convergence-gauge-wrap .gauge-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; font-weight: 600; color: var(--accent);
+    }
+
+    /* ── Stat Card Upgrades ── */
+    .train-stats-row {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 12px; margin: 16px 0;
+    }
+    .train-stat-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; text-align: center;
+      position: relative; overflow: hidden;
+    }
+    .train-stat-card .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px; font-weight: 600; color: var(--accent);
+    }
+    .train-stat-card .stat-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+    .stat-value-row {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .stat-trend { font-size: 12px; line-height: 1; }
+    .stat-trend.up { color: var(--success); }
+    .stat-trend.down { color: var(--danger); }
+    .stat-trend.flat { color: var(--text-muted); }
+    .stat-trend.good { color: var(--success); }
+    .stat-trend.bad { color: var(--danger); }
+    .stat-sparkline {
+      display: block; margin: 6px auto 0; opacity: 0.6;
+    }
+
+    /* ── Oscilloscope Chart ── */
+    .train-chart-container {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; margin: 16px 0;
+      transition: border-color 0.3s ease;
+    }
+    .train-chart-container.spike { border-color: var(--danger); }
+    .train-chart-container canvas { width: 100%; height: 220px; display: block; }
+    .oscilloscope-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+    }
+    .oscilloscope-header h3 {
+      font-size: 12px; color: var(--text-dim); margin: 0;
+    }
+    .oscilloscope-header .scope-readout {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: var(--accent); opacity: 0.7;
+    }
+
+    /* ── Validation Timeline ── */
+    .val-timeline { margin-top: 8px; }
+    .val-compare {
+      position: relative; overflow: hidden;
+      border-radius: var(--radius); border: 1px solid var(--border);
+      height: 240px; background: #000; cursor: col-resize;
+      user-select: none; -webkit-user-select: none;
+    }
+    .val-compare img {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%; object-fit: contain;
+    }
+    .val-compare .val-overlay-right {
+      position: absolute; top: 0; right: 0;
+      height: 100%; overflow: hidden;
+    }
+    .val-compare .val-overlay-right img {
+      position: absolute; top: 0; right: 0;
+      width: auto; min-width: 100%; height: 100%; object-fit: contain;
+    }
+    .val-compare .val-divider {
+      position: absolute; top: 0; width: 2px; height: 100%;
+      background: var(--accent); z-index: 2;
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+    .val-compare .val-divider::after {
+      content: ''; position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--accent); opacity: 0.3;
+    }
+    .val-pill {
+      position: absolute; bottom: 8px; padding: 3px 8px;
+      border-radius: 4px; font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; z-index: 3;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+      color: var(--text); border: 1px solid var(--border);
+    }
+    .val-pill.left { left: 8px; }
+    .val-pill.right { right: 8px; }
+    .val-filmstrip {
+      display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 2px;
+    }
+    .val-thumb {
+      flex-shrink: 0; width: 64px; height: 48px;
+      border-radius: 4px; border: 2px solid transparent;
+      overflow: hidden; cursor: pointer; opacity: 0.5;
+      transition: opacity 0.2s, border-color 0.2s;
+    }
+    .val-thumb:hover { opacity: 0.8; }
+    .val-thumb.active { opacity: 1; border-color: var(--accent); }
+    .val-thumb img { width: 100%; height: 100%; object-fit: cover; }
 
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 6px; }
@@ -973,9 +1146,14 @@
       trainPollingInterval: null,
       trainLog: [],
       trainLogVisible: false,
+      trainLogFilter: "all",
+      trainLogExpanded: false,
       trainEntryPoint: "setup",
       trainDatasetPairs: 0,
       trainDatasetFrames: 0,
+      trainStatHistory: { loss: [], lr: [], speed: [] },
+      trainPrevStatValues: {},
+      trainValCompareIdx: [0, -1],
     };
 
     // ── Helpers ──
@@ -2677,27 +2855,7 @@
 
       // Training log (persists across failed attempts)
       if (state.trainLog.length > 0) {
-        const logSection = h("div", { className: "train-section" });
-        logSection.appendChild(h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-          h("h3", { style: { margin: 0 } }, "Training Log"),
-          h("button", { className: "btn-text", onClick: () => { state.trainLogVisible = !state.trainLogVisible; render(); } },
-            state.trainLogVisible ? "Hide" : "Show"
-          ),
-        ));
-        if (state.trainLogVisible) {
-          const logEl = h("div", { className: "train-log", id: "train-log-config" });
-          state.trainLog.slice(-200).forEach(line => {
-            const text = typeof line === "string" ? line : (line.message || JSON.stringify(line));
-            const isError = (line && line.type === "error");
-            logEl.appendChild(h("div", { style: isError ? { color: "var(--danger)" } : {} }, text));
-          });
-          logSection.appendChild(logEl);
-          requestAnimationFrame(() => {
-            const el = document.getElementById("train-log-config");
-            if (el) el.scrollTop = el.scrollHeight;
-          });
-        }
-        view.appendChild(logSection);
+        view.appendChild(renderTrainLogPanel("train-log-config"));
       }
 
       // Start button
@@ -2726,76 +2884,167 @@
       const total = p.total_steps || 1;
       const pct = total > 0 ? ((step / total) * 100) : 0;
 
-      // Header
-      view.appendChild(h("div", { className: "train-section" },
-        h("div", { style: { display: "flex", alignItems: "center", gap: "12px" } },
+      // Header — adapts to phase: loading, preprocessing, or training
+      const isLoading = p.phase === "loading" || p.status === "loading";
+      const isPreprocessing = p.phase === "preprocessing" || p.status === "preprocessing";
+      const isPreTrain = isLoading || isPreprocessing || (step === 0 && !p.loss);
+      const headerSection = h("div", { className: "train-section" });
+
+      if (isPreTrain) {
+        const elapsed = p.elapsed_seconds || 0;
+        let title, detail, hint, barPct;
+
+        if (isPreprocessing && p.preprocess_progress) {
+          const pp = p.preprocess_progress;
+          title = "Preprocessing Dataset";
+          detail = p.phase_detail || `Processing ${pp.current.toLocaleString()} / ${pp.total.toLocaleString()} examples`;
+          hint = elapsed > 0
+            ? `Elapsed: ${formatTime(elapsed)} \u00b7 Tokenizing text prompts and building cache`
+            : "Starting preprocessing...";
+          barPct = pp.pct || 0;
+        } else {
+          title = "Loading Model";
+          detail = p.phase_detail || "Loading model weights and tokenizers...";
+          hint = elapsed > 0
+            ? `Elapsed: ${formatTime(elapsed)} \u00b7 FLUX.1-dev is ~24GB \u2014 first load can take 10\u201315 min on Apple Silicon`
+            : "Starting up...";
+          barPct = null;
+        }
+
+        headerSection.appendChild(h("div", { style: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" } },
           h("div", { className: "proc-spinner" }),
-          h("div", {},
-            h("h2", {}, "Training Flux ControlNet"),
-            h("p", { style: { color: "var(--text-dim)", fontSize: "13px" } },
-              `Step ${step.toLocaleString()} / ${total.toLocaleString()} \u00b7 `,
-              p.eta_seconds ? `ETA: ${formatTime(p.eta_seconds)}` : "Calculating..."
-            ),
-          ),
-        ),
-        h("div", { className: "progress-track", style: { marginTop: "12px" } },
+          h("h2", { style: { margin: 0 } }, title),
+        ));
+        headerSection.appendChild(h("div", { style: { padding: "12px 0" } },
+          h("div", { style: {
+            fontFamily: "'JetBrains Mono', monospace", fontSize: "12px",
+            color: "var(--accent)", marginBottom: "8px", opacity: "0.8",
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          }}, detail),
+          h("div", { style: { fontSize: "12px", color: "var(--text-muted)" } }, hint),
+        ));
+        if (barPct != null) {
+          headerSection.appendChild(h("div", { className: "progress-track", style: { marginTop: "12px" } },
+            h("div", { className: "progress-fill", style: { width: `${barPct}%` } }),
+          ));
+        } else {
+          headerSection.appendChild(h("div", { className: "progress-track", style: { marginTop: "12px" } },
+            h("div", { className: "progress-fill loading-pulse", style: { width: "100%" } }),
+          ));
+        }
+      } else {
+        headerSection.appendChild(h("div", { style: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" } },
+          h("div", { className: "proc-spinner" }),
+          h("h2", { style: { margin: 0 } }, "Training Flux ControlNet"),
+        ));
+        headerSection.appendChild(renderRadialProgress(step, total, p.eta_seconds, state.trainLossHistory));
+        headerSection.appendChild(h("div", { className: "progress-track", style: { marginTop: "12px" } },
           h("div", { className: "progress-fill", style: { width: `${pct}%` } }),
-        ),
-      ));
+        ));
+      }
+      view.appendChild(headerSection);
 
-      // Stats row
-      view.appendChild(h("div", { className: "train-stats-row" },
-        trainStatCard("Loss", p.loss != null ? p.loss.toFixed(4) : "--"),
-        trainStatCard("LR", p.learning_rate != null ? p.learning_rate.toExponential(1) : "--"),
-        trainStatCard("Steps/s", p.steps_per_second != null ? p.steps_per_second.toFixed(2) : "--"),
-        trainStatCard("Elapsed", p.elapsed_seconds ? formatTime(p.elapsed_seconds) : "--"),
-      ));
+      // Stats row + convergence gauge
+      const statsRow = h("div", { className: "train-stats-row" });
+      statsRow.appendChild(trainStatCard("Loss", p.loss != null ? p.loss.toFixed(4) : "--", "loss"));
+      statsRow.appendChild(trainStatCard("LR", p.learning_rate != null ? p.learning_rate.toExponential(1) : "--", "lr"));
+      statsRow.appendChild(trainStatCard("Steps/s", p.steps_per_second != null ? p.steps_per_second.toFixed(2) : "--", "speed"));
+      statsRow.appendChild(trainStatCard("Elapsed", p.elapsed_seconds ? formatTime(p.elapsed_seconds) : "--", "elapsed"));
+      if (state.trainLossHistory.length >= 4) {
+        statsRow.appendChild(renderConvergenceGauge(state.trainLossHistory));
+      }
+      view.appendChild(statsRow);
 
-      // Loss chart
+      // Oscilloscope loss chart
       if (state.trainLossHistory.length > 1) {
         const chartSection = h("div", { className: "train-chart-container" });
-        chartSection.appendChild(h("h3", { style: { fontSize: "12px", color: "var(--text-dim)", marginBottom: "8px" } }, "Loss Curve"));
-        const canvas = h("canvas", { id: "loss-chart", width: "800", height: "200" });
+        const lastLoss = state.trainLossHistory[state.trainLossHistory.length - 1];
+        chartSection.appendChild(h("div", { className: "oscilloscope-header" },
+          h("h3", {}, "Loss Waveform"),
+          h("span", { className: "scope-readout" },
+            `${state.trainLossHistory.length} samples \u00b7 latest ${lastLoss ? lastLoss[1].toFixed(4) : "--"}`
+          ),
+        ));
+        const canvas = h("canvas", { id: "loss-chart", width: "800", height: "220" });
         chartSection.appendChild(canvas);
         view.appendChild(chartSection);
         requestAnimationFrame(() => drawLossChart());
       }
 
-      // Validation images
+      // Validation timeline with A/B comparison
       if (state.trainValidationImages.length > 0) {
         const valSection = h("div", { className: "train-section" });
-        valSection.appendChild(h("h3", {}, "Validation Samples"));
-        const gallery = h("div", { className: "train-val-gallery" });
-        state.trainValidationImages.forEach(img => {
-          gallery.appendChild(h("div", { className: "train-val-item" },
-            h("img", { src: img.dataUri, alt: img.path }),
-            h("div", { className: "val-step" }, img.path),
-          ));
-        });
-        valSection.appendChild(gallery);
+        valSection.appendChild(h("h3", {}, "Validation Timeline"));
+        const imgs = state.trainValidationImages;
+
+        if (imgs.length >= 2) {
+          let [leftIdx, rightIdx] = state.trainValCompareIdx;
+          if (rightIdx < 0) rightIdx = imgs.length - 1;
+          leftIdx = Math.max(0, Math.min(leftIdx, imgs.length - 1));
+          rightIdx = Math.max(0, Math.min(rightIdx, imgs.length - 1));
+          if (leftIdx === rightIdx && imgs.length > 1) leftIdx = Math.max(0, rightIdx - 1);
+
+          const compare = h("div", { className: "val-compare", id: "val-compare" });
+          compare.appendChild(h("img", { src: imgs[leftIdx].dataUri, alt: "Left" }));
+
+          const overlayRight = h("div", { className: "val-overlay-right", id: "val-overlay-right", style: { width: "50%" } });
+          overlayRight.appendChild(h("img", { src: imgs[rightIdx].dataUri, alt: "Right" }));
+          compare.appendChild(overlayRight);
+
+          const divider = h("div", { className: "val-divider", id: "val-divider", style: { left: "50%" } });
+          compare.appendChild(divider);
+
+          const stepFromPath = (p) => { const m = p.match(/step[_-]?(\d+)/i); return m ? `Step ${m[1]}` : p.split("/").pop(); };
+          compare.appendChild(h("span", { className: "val-pill left" }, stepFromPath(imgs[leftIdx].path)));
+          compare.appendChild(h("span", { className: "val-pill right" }, stepFromPath(imgs[rightIdx].path)));
+          valSection.appendChild(compare);
+
+          requestAnimationFrame(() => {
+            const el = document.getElementById("val-compare");
+            if (!el) return;
+            let dragging = false;
+            const updatePos = (clientX) => {
+              const rect = el.getBoundingClientRect();
+              const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+              const pctStr = (pct * 100) + "%";
+              const div = document.getElementById("val-divider");
+              const overlay = document.getElementById("val-overlay-right");
+              if (div) div.style.left = pctStr;
+              if (overlay) overlay.style.width = ((1 - pct) * 100) + "%";
+            };
+            el.addEventListener("mousedown", (e) => { dragging = true; updatePos(e.clientX); });
+            document.addEventListener("mousemove", (e) => { if (dragging) updatePos(e.clientX); });
+            document.addEventListener("mouseup", () => { dragging = false; });
+          });
+
+          // Filmstrip
+          const strip = h("div", { className: "val-filmstrip" });
+          imgs.forEach((img, i) => {
+            const cls = (i === leftIdx || i === rightIdx) ? "val-thumb active" : "val-thumb";
+            const thumb = h("div", { className: cls, onClick: () => {
+              if (i < rightIdx) state.trainValCompareIdx = [i, rightIdx];
+              else state.trainValCompareIdx = [leftIdx, i];
+              render();
+            }});
+            thumb.appendChild(h("img", { src: img.dataUri }));
+            strip.appendChild(thumb);
+          });
+          valSection.appendChild(strip);
+        } else {
+          const gallery = h("div", { className: "train-val-gallery" });
+          imgs.forEach(img => {
+            gallery.appendChild(h("div", { className: "train-val-item" },
+              h("img", { src: img.dataUri, alt: img.path }),
+              h("div", { className: "val-step" }, img.path),
+            ));
+          });
+          valSection.appendChild(gallery);
+        }
         view.appendChild(valSection);
       }
 
-      // Log toggle + log area
-      const logSection = h("div", { className: "train-section" });
-      logSection.appendChild(h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-        h("h3", { style: { margin: 0 } }, "Training Log"),
-        h("button", { className: "btn-text", onClick: () => { state.trainLogVisible = !state.trainLogVisible; render(); } },
-          state.trainLogVisible ? "Hide" : "Show"
-        ),
-      ));
-      if (state.trainLogVisible) {
-        const logEl = h("div", { className: "train-log", id: "train-log" });
-        state.trainLog.slice(-200).forEach(line => {
-          logEl.appendChild(h("div", {}, typeof line === "string" ? line : (line.message || JSON.stringify(line))));
-        });
-        logSection.appendChild(logEl);
-        requestAnimationFrame(() => {
-          const el = document.getElementById("train-log");
-          if (el) el.scrollTop = el.scrollHeight;
-        });
-      }
-      view.appendChild(logSection);
+      // Console log panel
+      view.appendChild(renderTrainLogPanel("train-log-dash"));
 
       // Cancel button
       view.appendChild(h("div", { className: "train-actions" },
@@ -2834,11 +3083,382 @@
       ));
     }
 
-    function trainStatCard(label, value) {
-      return h("div", { className: "train-stat-card" },
-        h("div", { className: "stat-value" }, value),
-        h("div", { className: "stat-label" }, label),
-      );
+    function renderRadialProgress(step, total, etaSeconds, lossHistory) {
+      const pct = total > 0 ? step / total : 0;
+      const R = 52, stroke = 6, innerR = 42, innerStroke = 4;
+      const size = (R + stroke) * 2;
+      const cx = size / 2, cy = size / 2;
+      const circumOuter = 2 * Math.PI * R;
+      const circumInner = 2 * Math.PI * innerR;
+      const outerOffset = circumOuter * (1 - pct);
+
+      let trendPct = 0.5;
+      if (lossHistory.length >= 40) {
+        const recent = lossHistory.slice(-20).map(d => d[1]);
+        const older = lossHistory.slice(-40, -20).map(d => d[1]);
+        const avgRecent = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const avgOlder = older.reduce((a, b) => a + b, 0) / older.length;
+        const delta = (avgOlder - avgRecent) / (avgOlder || 1);
+        trendPct = Math.max(0, Math.min(1, 0.5 + delta * 5));
+      } else if (lossHistory.length >= 6) {
+        const recent = lossHistory.slice(-3).map(d => d[1]);
+        const older = lossHistory.slice(-6, -3).map(d => d[1]);
+        const avgR = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const avgO = older.reduce((a, b) => a + b, 0) / older.length;
+        const delta = (avgO - avgR) / (avgO || 1);
+        trendPct = Math.max(0, Math.min(1, 0.5 + delta * 5));
+      }
+      const innerOffset = circumInner * (1 - trendPct);
+      const trendColor = trendPct > 0.6 ? "#4ecdc4" : trendPct > 0.4 ? "#f0c674" : "#f87171";
+
+      const endAngle = -Math.PI / 2 + pct * 2 * Math.PI;
+      const dotX = cx + R * Math.cos(endAngle);
+      const dotY = cy + R * Math.sin(endAngle);
+
+      const svgNs = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNs, "svg");
+      svg.setAttribute("width", size); svg.setAttribute("height", size);
+      svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+
+      const defs = document.createElementNS(svgNs, "defs");
+      const filter = document.createElementNS(svgNs, "filter");
+      filter.id = "ringGlow";
+      const blur = document.createElementNS(svgNs, "feGaussianBlur");
+      blur.setAttribute("stdDeviation", "3"); blur.setAttribute("result", "glow");
+      const merge = document.createElementNS(svgNs, "feMerge");
+      const mn1 = document.createElementNS(svgNs, "feMergeNode"); mn1.setAttribute("in", "glow");
+      const mn2 = document.createElementNS(svgNs, "feMergeNode"); mn2.setAttribute("in", "SourceGraphic");
+      merge.appendChild(mn1); merge.appendChild(mn2);
+      filter.appendChild(blur); filter.appendChild(merge);
+      defs.appendChild(filter);
+      svg.appendChild(defs);
+
+      const makeCircle = (r, sw, dasharray, dashoffset, color, opacity) => {
+        const c = document.createElementNS(svgNs, "circle");
+        c.setAttribute("cx", cx); c.setAttribute("cy", cy); c.setAttribute("r", r);
+        c.setAttribute("fill", "none"); c.setAttribute("stroke", color);
+        c.setAttribute("stroke-width", sw); c.setAttribute("opacity", opacity);
+        c.setAttribute("stroke-dasharray", dasharray);
+        c.setAttribute("stroke-dashoffset", dashoffset);
+        c.setAttribute("stroke-linecap", "round");
+        c.setAttribute("transform", `rotate(-90 ${cx} ${cy})`);
+        return c;
+      };
+
+      svg.appendChild(makeCircle(R, stroke, circumOuter, 0, "#1e222c", 1));
+      const outerArc = makeCircle(R, stroke, circumOuter, outerOffset, "#4ecdc4", 1);
+      outerArc.setAttribute("filter", "url(#ringGlow)");
+      svg.appendChild(outerArc);
+
+      svg.appendChild(makeCircle(innerR, innerStroke, circumInner, 0, "#1e222c", 1));
+      svg.appendChild(makeCircle(innerR, innerStroke, circumInner, innerOffset, trendColor, 0.7));
+
+      if (pct > 0) {
+        const dot = document.createElementNS(svgNs, "circle");
+        dot.setAttribute("cx", dotX); dot.setAttribute("cy", dotY);
+        dot.setAttribute("r", "4"); dot.setAttribute("fill", "#4ecdc4");
+        dot.classList.add("ring-glow-dot");
+        svg.appendChild(dot);
+      }
+
+      const wrapper = h("div", { className: "radial-ring-wrapper" });
+      wrapper.appendChild(svg);
+      wrapper.appendChild(h("div", { className: "ring-stats" },
+        h("div", { className: "ring-step" }, step.toLocaleString()),
+        h("div", { className: "ring-total" }, `/ ${total.toLocaleString()} steps`),
+        h("div", { className: "ring-eta" }, etaSeconds ? `ETA ${formatTime(etaSeconds)}` : "Calculating..."),
+      ));
+      return wrapper;
+    }
+
+    function renderConvergenceGauge(lossHistory) {
+      const wrap = h("div", { className: "convergence-gauge-wrap" });
+      const canvasEl = h("canvas", { id: "convergence-gauge", width: "200", height: "110" });
+      wrap.appendChild(canvasEl);
+
+      let velocity = 0;
+      let statusText = "Waiting for data";
+      if (lossHistory.length >= 20) {
+        const window1 = lossHistory.slice(-20);
+        const window2 = lossHistory.slice(-40, -20);
+        if (window2.length >= 10) {
+          const avg1 = window1.map(d => d[1]).reduce((a, b) => a + b, 0) / window1.length;
+          const avg2 = window2.map(d => d[1]).reduce((a, b) => a + b, 0) / window2.length;
+          velocity = (avg2 - avg1) / (avg2 || 1);
+        }
+      } else if (lossHistory.length >= 4) {
+        const half = Math.floor(lossHistory.length / 2);
+        const first = lossHistory.slice(0, half).map(d => d[1]);
+        const second = lossHistory.slice(half).map(d => d[1]);
+        const avg1 = first.reduce((a, b) => a + b, 0) / first.length;
+        const avg2 = second.reduce((a, b) => a + b, 0) / second.length;
+        velocity = (avg1 - avg2) / (avg1 || 1);
+      }
+
+      const clamped = Math.max(-1, Math.min(1, velocity * 10));
+      if (clamped > 0.15) statusText = "Converging";
+      else if (clamped > 0.03) statusText = "Slow convergence";
+      else if (clamped > -0.03) statusText = "Plateau";
+      else if (clamped > -0.15) statusText = "Slight divergence";
+      else statusText = "Diverging";
+
+      wrap.appendChild(h("div", { className: "gauge-value" }, statusText));
+      wrap.appendChild(h("div", { className: "gauge-label" }, `Loss velocity: ${(velocity * 100).toFixed(2)}%`));
+
+      requestAnimationFrame(() => {
+        const c = document.getElementById("convergence-gauge");
+        if (!c) return;
+        const ctx = c.getContext("2d");
+        const W = 200, H = 110;
+        c.width = W; c.height = H;
+        const cx = W / 2, cy = H - 10;
+        const r = 70;
+
+        ctx.fillStyle = "#0d1017";
+        ctx.fillRect(0, 0, W, H);
+
+        const zones = [
+          { start: Math.PI, end: Math.PI + Math.PI * 0.33, color: "#f87171" },
+          { start: Math.PI + Math.PI * 0.33, end: Math.PI + Math.PI * 0.66, color: "#f0c674" },
+          { start: Math.PI + Math.PI * 0.66, end: 2 * Math.PI, color: "#4ecdc4" },
+        ];
+        for (const z of zones) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, z.start, z.end);
+          ctx.strokeStyle = z.color;
+          ctx.globalAlpha = 0.2;
+          ctx.lineWidth = 10;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+
+        // Tick marks
+        ctx.strokeStyle = "#3a4052";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 10; i++) {
+          const a = Math.PI + (i / 10) * Math.PI;
+          const x1 = cx + (r + 6) * Math.cos(a), y1 = cy + (r + 6) * Math.sin(a);
+          const x2 = cx + (r - 6) * Math.cos(a), y2 = cy + (r - 6) * Math.sin(a);
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        }
+
+        // Needle: clamped maps -1..1 to PI..2PI (right=converging, left=diverging)
+        const needleAngle = Math.PI + ((1 - clamped) / 2) * Math.PI;
+        const nx = cx + (r - 16) * Math.cos(needleAngle);
+        const ny = cy + (r - 16) * Math.sin(needleAngle);
+
+        ctx.save();
+        ctx.shadowColor = "#4ecdc4";
+        ctx.shadowBlur = 6;
+        ctx.strokeStyle = "#e4e8f0";
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(nx, ny); ctx.stroke();
+        ctx.restore();
+
+        ctx.fillStyle = "#e4e8f0";
+        ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+
+        // Labels
+        ctx.fillStyle = "#5c6478";
+        ctx.font = "9px 'JetBrains Mono', monospace";
+        ctx.textAlign = "right";
+        ctx.fillText("DIV", cx - r + 6, cy + 2);
+        ctx.textAlign = "left";
+        ctx.fillText("CONV", cx + r - 24, cy + 2);
+      });
+
+      return wrap;
+    }
+
+    function trainStatCard(label, value, historyKey) {
+      const card = h("div", { className: "train-stat-card" });
+      const sh = state.trainStatHistory;
+      const arr = historyKey && sh[historyKey] ? sh[historyKey] : [];
+
+      // Trend arrow
+      let trendEl = null;
+      if (arr.length >= 3) {
+        const recent = arr.slice(-3).reduce((a, b) => a + b, 0) / 3;
+        const older = arr.slice(-6, -3);
+        if (older.length >= 2) {
+          const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+          const diff = recent - olderAvg;
+          const threshold = Math.abs(olderAvg) * 0.005 || 1e-8;
+          const isGood = (historyKey === "loss") ? diff < -threshold : diff > threshold;
+          const isBad = (historyKey === "loss") ? diff > threshold : diff < -threshold;
+          const arrow = diff > threshold ? "\u25B2" : diff < -threshold ? "\u25BC" : "\u25CF";
+          const cls = isGood ? "stat-trend good" : isBad ? "stat-trend bad" : "stat-trend flat";
+          trendEl = h("span", { className: cls }, arrow);
+        }
+      }
+
+      const valueRow = h("div", { className: "stat-value-row" });
+      valueRow.appendChild(h("span", { className: "stat-value" }, value));
+      if (trendEl) valueRow.appendChild(trendEl);
+      card.appendChild(valueRow);
+
+      card.appendChild(h("div", { className: "stat-label" }, label));
+
+      // Micro-sparkline canvas
+      if (arr.length >= 2 && historyKey) {
+        const sparkCanvas = h("canvas", {
+          className: "stat-sparkline",
+          id: `sparkline-${historyKey}`,
+          width: "60", height: "20"
+        });
+        card.appendChild(sparkCanvas);
+        requestAnimationFrame(() => drawMicroSparkline(`sparkline-${historyKey}`, arr, historyKey));
+      }
+
+      return card;
+    }
+
+    function drawMicroSparkline(canvasId, data, key) {
+      const c = document.getElementById(canvasId);
+      if (!c || data.length < 2) return;
+      const ctx = c.getContext("2d");
+      const W = 60, H = 20;
+      c.width = W; c.height = H;
+
+      const min = Math.min(...data);
+      const max = Math.max(...data);
+      const range = max - min || 1;
+
+      const xStep = W / (data.length - 1);
+      const yScale = (v) => H - 2 - ((v - min) / range) * (H - 4);
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Fill gradient under the line
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, "rgba(78,205,196,0.2)");
+      grad.addColorStop(1, "rgba(78,205,196,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      data.forEach((v, i) => ctx.lineTo(i * xStep, yScale(v)));
+      ctx.lineTo((data.length - 1) * xStep, H);
+      ctx.closePath();
+      ctx.fill();
+
+      // Line
+      ctx.strokeStyle = key === "loss" ? "#4ecdc4" : key === "lr" ? "#a78bfa" : "#f0c674";
+      ctx.lineWidth = 1;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      data.forEach((v, i) => {
+        const x = i * xStep, y = yScale(v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    function renderTrainLogPanel(logElId) {
+      const section = h("div", { className: "train-section" });
+
+      // Header row
+      const headerRow = h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } });
+      headerRow.appendChild(h("h3", { style: { margin: 0 } }, "Console"));
+      headerRow.appendChild(h("button", { className: "btn-text", onClick: () => { state.trainLogVisible = !state.trainLogVisible; render(); } },
+        state.trainLogVisible ? "Hide" : "Show"
+      ));
+      section.appendChild(headerRow);
+
+      if (!state.trainLogVisible) return section;
+
+      const panel = h("div", { className: "train-log-panel" });
+
+      // Filter toolbar
+      const toolbar = h("div", { className: "train-log-toolbar" });
+      const filters = [
+        ["all", "All"],
+        ["error", "Errors"],
+        ["progress", "Progress"],
+        ["loading", "Loading"],
+        ["stderr", "Stderr"],
+        ["info", "Debug"],
+      ];
+      for (const [key, label] of filters) {
+        const count = key === "all"
+          ? state.trainLog.length
+          : state.trainLog.filter(e => e && e.type === key).length;
+        const btn = h("button", {
+          className: `log-filter-btn ${state.trainLogFilter === key ? "active" : ""}`,
+          onClick: () => { state.trainLogFilter = key; render(); },
+        }, `${label}${count > 0 ? ` (${count})` : ""}`);
+        toolbar.appendChild(btn);
+      }
+
+      // Action buttons
+      const expandBtn = h("button", {
+        className: "log-action-btn",
+        onClick: () => { state.trainLogExpanded = !state.trainLogExpanded; render(); },
+      }, state.trainLogExpanded ? "\u2913 Compact" : "\u2912 Expand");
+      toolbar.appendChild(expandBtn);
+
+      const copyBtn = h("button", {
+        className: "log-action-btn",
+        onClick: () => {
+          const text = state.trainLog
+            .map(e => {
+              const msg = typeof e === "string" ? e : (e.message || JSON.stringify(e));
+              const ts = e.ts ? new Date(e.ts).toLocaleTimeString() : "";
+              return `[${ts}] ${msg}`;
+            }).join("\n");
+          navigator.clipboard.writeText(text).catch(() => {});
+        },
+      }, "Copy");
+      toolbar.appendChild(copyBtn);
+
+      const clearBtn = h("button", {
+        className: "log-action-btn",
+        onClick: () => { state.trainLog = []; render(); },
+      }, "Clear");
+      toolbar.appendChild(clearBtn);
+
+      const errorCount = state.trainLog.filter(e => e && e.type === "error").length;
+      toolbar.appendChild(h("span", { className: "log-badge" },
+        `${state.trainLog.length} lines` + (errorCount > 0 ? ` \u00b7 ${errorCount} errors` : "")
+      ));
+      panel.appendChild(toolbar);
+
+      // Filtered log lines
+      const filter = state.trainLogFilter;
+      const filtered = filter === "all"
+        ? state.trainLog
+        : state.trainLog.filter(e => e && e.type === filter);
+
+      const displayLines = filtered.slice(-500);
+
+      const logEl = h("div", {
+        className: `train-log ${state.trainLogExpanded ? "expanded" : "compact"}`,
+        id: logElId,
+      });
+
+      for (const entry of displayLines) {
+        const isObj = entry && typeof entry === "object";
+        const type = isObj ? (entry.type || "info") : "info";
+        const msg = isObj ? (entry.message || JSON.stringify(entry)) : String(entry);
+        const ts = isObj && entry.ts ? new Date(entry.ts).toLocaleTimeString("en-US", { hour12: false }) : "";
+
+        const lineClass = `log-line log-${type}`;
+        const line = h("div", { className: lineClass },
+          h("span", { className: "log-ts" }, ts),
+          h("span", { className: "log-msg" }, msg),
+        );
+        logEl.appendChild(line);
+      }
+
+      panel.appendChild(logEl);
+      section.appendChild(panel);
+
+      // Auto-scroll to bottom
+      requestAnimationFrame(() => {
+        const el = document.getElementById(logElId);
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+
+      return section;
     }
 
     function formatTime(seconds) {
@@ -2856,56 +3476,133 @@
       const ctx = canvas.getContext("2d");
       const rect = canvas.parentElement.getBoundingClientRect();
       canvas.width = rect.width - 32;
-      canvas.height = 200;
+      canvas.height = 220;
       const W = canvas.width, H = canvas.height;
-      const pad = { top: 10, right: 10, bottom: 25, left: 50 };
+      const pad = { top: 14, right: 14, bottom: 28, left: 54 };
 
-      const data = state.trainLossHistory;
-      if (data.length < 2) return;
+      const allData = state.trainLossHistory;
+      if (allData.length < 2) return;
 
+      const data = allData.slice(-200);
       const steps = data.map(d => d[0]);
       const losses = data.map(d => d[1]);
       const minStep = steps[0], maxStep = steps[steps.length - 1];
-      const minLoss = Math.min(...losses) * 0.9;
-      const maxLoss = Math.max(...losses) * 1.1;
+      const minLoss = Math.min(...losses) * 0.95;
+      const maxLoss = Math.max(...losses) * 1.05;
 
-      const xScale = (v) => pad.left + ((v - minStep) / (maxStep - minStep || 1)) * (W - pad.left - pad.right);
-      const yScale = (v) => pad.top + (1 - (v - minLoss) / (maxLoss - minLoss || 1)) * (H - pad.top - pad.bottom);
+      const plotW = W - pad.left - pad.right;
+      const plotH = H - pad.top - pad.bottom;
+      const xScale = (v) => pad.left + ((v - minStep) / (maxStep - minStep || 1)) * plotW;
+      const yScale = (v) => pad.top + (1 - (v - minLoss) / (maxLoss - minLoss || 1)) * plotH;
 
-      // Background
-      ctx.fillStyle = "#181c24";
+      ctx.fillStyle = "#0d1017";
       ctx.fillRect(0, 0, W, H);
 
-      // Grid lines
-      ctx.strokeStyle = "#262b36";
+      // Subtle vignette
+      const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.7);
+      vg.addColorStop(0, "transparent");
+      vg.addColorStop(1, "rgba(0,0,0,0.35)");
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = "rgba(78,205,196,0.08)";
       ctx.lineWidth = 0.5;
-      for (let i = 0; i <= 4; i++) {
-        const y = pad.top + (i / 4) * (H - pad.top - pad.bottom);
+      for (let i = 0; i <= 5; i++) {
+        const y = pad.top + (i / 5) * plotH;
         ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
       }
+      for (let i = 0; i <= 4; i++) {
+        const x = pad.left + (i / 4) * plotW;
+        ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, H - pad.bottom); ctx.stroke();
+      }
+      ctx.setLineDash([]);
 
-      // Axes labels
-      ctx.fillStyle = "#5c6478";
+      // Axis labels
+      ctx.fillStyle = "#3a4052";
       ctx.font = "10px 'JetBrains Mono', monospace";
       ctx.textAlign = "right";
-      for (let i = 0; i <= 4; i++) {
-        const val = maxLoss - (i / 4) * (maxLoss - minLoss);
-        const y = pad.top + (i / 4) * (H - pad.top - pad.bottom);
-        ctx.fillText(val.toFixed(3), pad.left - 5, y + 3);
+      for (let i = 0; i <= 5; i++) {
+        const val = maxLoss - (i / 5) * (maxLoss - minLoss);
+        ctx.fillText(val.toFixed(3), pad.left - 6, pad.top + (i / 5) * plotH + 3);
       }
       ctx.textAlign = "center";
-      ctx.fillText(String(minStep), xScale(minStep), H - 5);
-      ctx.fillText(String(maxStep), xScale(maxStep), H - 5);
+      const stepInterval = maxStep - minStep;
+      for (let i = 0; i <= 4; i++) {
+        const s = Math.round(minStep + (i / 4) * stepInterval);
+        ctx.fillText(String(s), pad.left + (i / 4) * plotW, H - 8);
+      }
 
-      // Loss line
-      ctx.strokeStyle = "#4ecdc4";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      data.forEach(([step, loss], i) => {
-        const x = xScale(step), y = yScale(loss);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
+      // Current loss scan line
+      const currentLoss = losses[losses.length - 1];
+      const scanY = yScale(currentLoss);
+      ctx.strokeStyle = "rgba(78,205,196,0.12)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pad.left, scanY); ctx.lineTo(W - pad.right, scanY); ctx.stroke();
+
+      // Build path points
+      const pts = data.map(([step, loss]) => [xScale(step), yScale(loss)]);
+
+      // Triple-pass phosphor glow (wide dim, medium, sharp bright)
+      const passes = [
+        { width: 6, alpha: 0.08, blur: 12 },
+        { width: 3, alpha: 0.25, blur: 6 },
+        { width: 1.5, alpha: 0.9, blur: 2 },
+      ];
+
+      for (const pass of passes) {
+        ctx.save();
+        ctx.globalAlpha = pass.alpha;
+        ctx.shadowColor = "#4ecdc4";
+        ctx.shadowBlur = pass.blur;
+        ctx.strokeStyle = "#4ecdc4";
+        ctx.lineWidth = pass.width;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        pts.forEach(([x, y], i) => {
+          // Fade out older points on the left edge
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Left-edge fade mask
+      if (data.length > 20) {
+        const fadeW = Math.min(60, plotW * 0.15);
+        const fadeGrad = ctx.createLinearGradient(pad.left, 0, pad.left + fadeW, 0);
+        fadeGrad.addColorStop(0, "#0d1017");
+        fadeGrad.addColorStop(1, "rgba(13,16,23,0)");
+        ctx.fillStyle = fadeGrad;
+        ctx.fillRect(pad.left, pad.top, fadeW, plotH);
+      }
+
+      // Bright endpoint dot
+      if (pts.length > 0) {
+        const [ex, ey] = pts[pts.length - 1];
+        ctx.save();
+        ctx.shadowColor = "#4ecdc4";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = "#4ecdc4";
+        ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+
+      // Spike detection: flash container border
+      if (allData.length > 10) {
+        const recent = allData.slice(-10).map(d => d[1]);
+        const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const newest = recent[recent.length - 1];
+        const container = canvas.closest(".train-chart-container");
+        if (container) {
+          if (Math.abs(newest - avg) / (avg || 1) > 0.15) {
+            container.classList.add("spike");
+            setTimeout(() => container.classList.remove("spike"), 1500);
+          }
+        }
+      }
     }
 
     // ── Training Actions ──
@@ -3034,6 +3731,9 @@
       state.trainLog = [];
       state.trainLossHistory = [];
       state.trainValidationImages = [];
+      state.trainStatHistory = { loss: [], lr: [], speed: [] };
+      state.trainPrevStatValues = {};
+      state.trainValCompareIdx = [0, -1];
       render();
 
       const prepResult = await window.api.prepareTrainingDataset({
@@ -3077,7 +3777,7 @@
         }
       } else {
         state.trainView = "config";
-        state.trainLog.push({ type: "error", message: result.error || "Training failed to start" });
+        state.trainLog.push({ ts: new Date(), type: "error", message: result.error || "Training failed to start" });
         state.trainLogVisible = true;
         render();
       }
@@ -3100,6 +3800,12 @@
         state.trainValidationImages = result.validation_images_loaded;
       }
 
+      // Update stat history for sparklines (cap at 30)
+      const sh = state.trainStatHistory;
+      if (result.loss != null) { sh.loss.push(result.loss); if (sh.loss.length > 30) sh.loss.shift(); }
+      if (result.learning_rate != null) { sh.lr.push(result.learning_rate); if (sh.lr.length > 30) sh.lr.shift(); }
+      if (result.steps_per_second != null) { sh.speed.push(result.steps_per_second); if (sh.speed.length > 30) sh.speed.shift(); }
+
       // Check if done
       if (result.status === "complete" || result.status === "error" || result.status === "cancelled") {
         clearInterval(state.trainPollingInterval);
@@ -3109,7 +3815,7 @@
         } else {
           state.trainView = "config";
           const errMsg = result.error_message || `Training ${result.status}`;
-          state.trainLog.push({ type: "error", message: errMsg });
+          state.trainLog.push({ ts: new Date(), type: "error", message: errMsg });
           state.trainLogVisible = true;
         }
       }
@@ -3159,14 +3865,31 @@
 
     // Training log listener
     window.api.onTrainingLog((line) => {
+      const ts = new Date();
+      let entry = { ts, type: "info", message: line };
       try {
-        const event = JSON.parse(line);
-        state.trainLog.push(event);
+        const parsed = JSON.parse(line);
+        entry.type = parsed.type || "info";
+        entry.message = parsed.message || line;
+        if (parsed.type === "progress") {
+          entry.message = `Step ${parsed.step}/${parsed.total} \u2502 loss=${parsed.loss} lr=${parsed.lr} (${parsed.pct}%)`;
+        }
       } catch {
-        state.trainLog.push(line);
+        if (typeof line === "string") {
+          if (line.startsWith("[stderr]")) {
+            entry.type = "stderr";
+            entry.message = line.slice(9);
+          } else if (/error|traceback|exception/i.test(line)) {
+            entry.type = "error";
+          } else if (/loading|downloading|fetching|shard|safetensor/i.test(line)) {
+            entry.type = "loading";
+          } else if (/^Map:|^Filter:|^Tokeniz|^Encod|^Preprocess|examples\/s/i.test(line)) {
+            entry.type = "loading";
+          }
+        }
       }
-      // Keep log bounded
-      if (state.trainLog.length > 500) state.trainLog = state.trainLog.slice(-500);
+      state.trainLog.push(entry);
+      if (state.trainLog.length > 2000) state.trainLog = state.trainLog.slice(-2000);
     });
 
     window.api.onTrainingComplete(({ code }) => {
@@ -3176,7 +3899,7 @@
         state.trainView = "complete";
       } else {
         state.trainView = "config";
-        state.trainLog.push({ type: "error", message: `Training process exited with code ${code}` });
+        state.trainLog.push({ ts: new Date(), type: "error", message: `Training process exited with code ${code}` });
         state.trainLogVisible = true;
       }
       render();
