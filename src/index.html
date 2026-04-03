@@ -877,6 +877,33 @@
     .train-actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
     .train-locked { font-size: 11px; color: var(--text-muted); font-style: italic; margin-top: 4px; }
 
+    .validation-mode-row {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+    }
+    .validation-mode-row .validation-mode-label {
+      display: flex; align-items: flex-start; gap: 10px;
+      cursor: pointer; margin: 0; font-weight: 500; font-size: 13px;
+    }
+    .validation-mode-row input[type="checkbox"] {
+      margin-top: 3px; flex-shrink: 0; accent-color: var(--accent);
+      -webkit-app-region: no-drag;
+    }
+    .validation-mode-row .validation-mode-desc {
+      display: block; font-size: 11px; color: var(--text-muted);
+      font-weight: 400; margin-top: 6px; line-height: 1.5;
+    }
+    .lr-hint {
+      font-size: 11px; color: var(--text-muted);
+      margin-top: 8px; line-height: 1.5; max-width: 44em;
+    }
+    .lr-hint .lr-mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--text-dim);
+    }
+
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -957,6 +984,46 @@
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
       if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
       return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+    }
+
+    /** Tuned for workflow checks on ~hundreds–1K pairs (ComfyUI smoke test, not production). */
+    const SMALL_DATASET_VALIDATION_DEFAULTS = {
+      max_train_steps: 2500,
+      checkpointing_steps: 250,
+      validation_steps: 100,
+      lr_scheduler: "constant",
+      lr_warmup_steps: 0,
+    };
+
+    function applyDatasetDerivedStepDefaults(pairs) {
+      if (pairs < 5000) {
+        state.trainConfig.max_train_steps = 15000;
+        state.trainConfig.checkpointing_steps = 1000;
+        state.trainConfig.validation_steps = 250;
+      } else if (pairs < 20000) {
+        state.trainConfig.max_train_steps = 30000;
+        state.trainConfig.checkpointing_steps = 2000;
+        state.trainConfig.validation_steps = 500;
+      } else {
+        state.trainConfig.max_train_steps = 50000;
+        state.trainConfig.checkpointing_steps = 2000;
+        state.trainConfig.validation_steps = 500;
+      }
+    }
+
+    /** Must match train/configs/presets.py defaults. */
+    function presetDefaultLearningRate(presetName) {
+      if (presetName === "wsl2_dual_a6000") return 1e-5;
+      return 1e-4;
+    }
+
+    function formatLrScientific(x) {
+      if (x == null || !Number.isFinite(x)) return String(x);
+      if (x === 1e-4) return "1e-4";
+      if (x === 1e-5) return "1e-5";
+      if (x === 5e-5) return "5e-5";
+      if (x === 2e-4) return "2e-4";
+      return x.toExponential(1);
     }
 
     function h(tag, attrs = {}, ...children) {
@@ -2395,7 +2462,11 @@
       ].forEach(([val, label]) => {
         presetRadios.appendChild(h("button", {
           className: `radio-btn ${state.trainConfig.preset === val ? "active" : ""}`,
-          onClick: () => { state.trainConfig.preset = val; render(); },
+          onClick: () => {
+            state.trainConfig.preset = val;
+            state.trainConfig.learning_rate = presetDefaultLearningRate(val);
+            render();
+          },
         }, label));
       });
       presetSection.appendChild(presetRadios);
@@ -2405,6 +2476,33 @@
       const configSection = h("div", { className: "train-section" });
       configSection.appendChild(h("h3", {}, "Training Configuration"));
       const grid = h("div", { className: "config-grid" });
+
+      const valModeRow = h("div", { className: "validation-mode-row", style: { gridColumn: "1 / -1" } });
+      const valLabel = h("label", { className: "validation-mode-label" });
+      const valChk = document.createElement("input");
+      valChk.type = "checkbox";
+      valChk.checked = !!state.trainConfig.smallDatasetValidation;
+      valChk.addEventListener("change", (e) => {
+        const on = e.target.checked;
+        state.trainConfig.smallDatasetValidation = on;
+        if (on) {
+          Object.assign(state.trainConfig, SMALL_DATASET_VALIDATION_DEFAULTS);
+        } else {
+          delete state.trainConfig.lr_scheduler;
+          delete state.trainConfig.lr_warmup_steps;
+          applyDatasetDerivedStepDefaults(state.trainDatasetPairs || 0);
+        }
+        render();
+      });
+      valLabel.appendChild(valChk);
+      valLabel.appendChild(h("span", {},
+        h("span", {}, "Small-dataset validation run"),
+        h("span", { className: "validation-mode-desc" },
+          "For ~\u22641K pairs: constant learning rate (no cosine tail-off), no LR warmup, fewer steps, and more frequent checkpoints and validations so you can confirm the pipeline in ComfyUI before a long run. Uncheck to use normal dataset-sized step defaults and the hardware preset\u2019s LR schedule.",
+        ),
+      ));
+      valModeRow.appendChild(valLabel);
+      grid.appendChild(valModeRow);
 
       // Resolution
       const resGroup = h("div", { className: "config-group" });
@@ -2431,10 +2529,44 @@
       // Learning rate
       const lrGroup = h("div", { className: "config-group" });
       lrGroup.appendChild(h("label", {}, "Learning Rate"));
+      const lrPresetDefault = presetDefaultLearningRate(state.trainConfig.preset);
+      const lrDisplay = state.trainConfig.learning_rate != null && Number.isFinite(state.trainConfig.learning_rate)
+        ? state.trainConfig.learning_rate
+        : lrPresetDefault;
       const lrInput = h("input", { className: "num-input", type: "text",
-        value: String(state.trainConfig.learning_rate || (state.trainConfig.preset === "wsl2_dual_a6000" ? "1e-5" : "3e-5")) });
-      lrInput.addEventListener("change", (e) => { state.trainConfig.learning_rate = parseFloat(e.target.value); });
+        value: String(lrDisplay) });
+      lrInput.addEventListener("change", (e) => {
+        const v = parseFloat(e.target.value);
+        state.trainConfig.learning_rate = Number.isFinite(v) ? v : lrPresetDefault;
+      });
       lrGroup.appendChild(lrInput);
+      const isMacPreset = !state.trainConfig.preset || !state.trainConfig.preset.startsWith("wsl2");
+      const lrHintParts = [
+        "Suggested for this preset: ",
+        h("span", { className: "lr-mono" }, formatLrScientific(lrPresetDefault)),
+        " (from ",
+        h("span", { className: "lr-mono" }, "train/configs/presets.py"),
+        "). ",
+        isMacPreset
+          ? "Apple Silicon / MPS ControlNet-style fine-tunes often use 1e-4; if loss spikes or goes NaN, try 5e-5."
+          : "This CUDA preset uses 1e-5 for long, stable runs; increase only cautiously if loss barely moves.",
+      ];
+      if (state.trainConfig.smallDatasetValidation) {
+        lrHintParts.push(
+          " Small-dataset validation: keep the preset value with constant LR unless you see instability (halve) or a flat loss for a long time (on Mac, you can try up to ~2e-4 with care).",
+        );
+      } else if (state.trainDatasetPairs > 0 && state.trainDatasetPairs < 5000) {
+        lrHintParts.push(
+          " Few pairs overfit quickly — if previews look burnt or noisy, try ",
+          h("span", { className: "lr-mono" }, "5e-5"),
+          " on Mac before lowering further.",
+        );
+      } else {
+        lrHintParts.push(
+          " If you change batch size or gradient accumulation a lot, tweak LR in the same direction (rough rule: double effective batch \u2192 up to ~1.4\u00d7 LR, or re-tune from the preset default).",
+        );
+      }
+      lrGroup.appendChild(h("div", { className: "lr-hint" }, ...lrHintParts));
       grid.appendChild(lrGroup);
 
       // Checkpoint interval
@@ -2830,20 +2962,9 @@
         state.trainDatasetPairs = dataset.totalPairs;
         state.trainDatasetFrames = dataset.totalFrames;
 
-        // Smart defaults based on dataset size
         const pairs = dataset.totalPairs;
-        if (pairs < 5000) {
-          state.trainConfig.max_train_steps = 15000;
-          state.trainConfig.checkpointing_steps = 1000;
-          state.trainConfig.validation_steps = 250;
-        } else if (pairs < 20000) {
-          state.trainConfig.max_train_steps = 30000;
-          state.trainConfig.checkpointing_steps = 2000;
-          state.trainConfig.validation_steps = 500;
-        } else {
-          state.trainConfig.max_train_steps = 50000;
-          state.trainConfig.checkpointing_steps = 2000;
-          state.trainConfig.validation_steps = 500;
+        if (!state.trainConfig.smallDatasetValidation) {
+          applyDatasetDerivedStepDefaults(pairs);
         }
       } catch {}
     }
@@ -2857,6 +2978,9 @@
           state.trainPreset = hw.preset;
           state.trainGpuInfo = Array.isArray(hw.gpu_info) ? hw.gpu_info.join(", ") : hw.gpu_info;
           state.trainConfig.preset = hw.preset;
+          if (state.trainConfig.learning_rate == null || !Number.isFinite(state.trainConfig.learning_rate)) {
+            state.trainConfig.learning_rate = presetDefaultLearningRate(hw.preset);
+          }
           state.trainDepStatus = "ok";
         } else {
           state.trainDepStatus = "error";
@@ -2890,11 +3014,20 @@
       const overrides = {};
       if (state.trainConfig.resolution) overrides.resolution = state.trainConfig.resolution;
       if (state.trainConfig.max_train_steps) overrides.max_train_steps = state.trainConfig.max_train_steps;
-      if (state.trainConfig.learning_rate) overrides.learning_rate = state.trainConfig.learning_rate;
+      {
+        const lr = state.trainConfig.learning_rate;
+        overrides.learning_rate = (lr != null && Number.isFinite(lr))
+          ? lr
+          : presetDefaultLearningRate(state.trainConfig.preset);
+      }
       if (state.trainConfig.checkpointing_steps) overrides.checkpointing_steps = state.trainConfig.checkpointing_steps;
       if (state.trainConfig.validation_steps) overrides.validation_steps = state.trainConfig.validation_steps;
       if (state.trainConfig.train_batch_size) overrides.train_batch_size = state.trainConfig.train_batch_size;
       if (state.trainConfig.gradient_accumulation_steps) overrides.gradient_accumulation_steps = state.trainConfig.gradient_accumulation_steps;
+      if (state.trainConfig.lr_scheduler) overrides.lr_scheduler = state.trainConfig.lr_scheduler;
+      if (state.trainConfig.lr_warmup_steps != null && state.trainConfig.lr_warmup_steps !== "") {
+        overrides.lr_warmup_steps = Number(state.trainConfig.lr_warmup_steps);
+      }
 
       // Prepare dataset first
       state.trainView = "preparing";

@@ -746,8 +746,35 @@ def get_train_dataset(args, accelerator):
                 f"`--conditioning_image_column` value '{args.conditioning_image_column}' not found in dataset columns. Dataset columns are: {', '.join(column_names)}"
             )
 
+    train_split = dataset["train"]
+    if args.jsonl_for_train is not None:
+
+        def _jsonl_row_paths_exist(example):
+            p_img = example[image_column]
+            p_cond = example[conditioning_image_column]
+            if not isinstance(p_img, str) or not isinstance(p_cond, str):
+                return True
+            return os.path.isfile(p_img) and os.path.isfile(p_cond)
+
+        n_before = len(train_split)
+        train_split = train_split.filter(_jsonl_row_paths_exist)
+        n_dropped = n_before - len(train_split)
+        if n_dropped:
+            logger.warning(
+                "Dropped %d of %d JSONL rows: target or conditioning file missing on disk. "
+                "Regenerate metadata.jsonl from train_ready/ (see train/train_controlnet.py _generate_jsonl) "
+                "if you pruned or moved files.",
+                n_dropped,
+                n_before,
+            )
+        if len(train_split) == 0:
+            raise ValueError(
+                "No training rows left after removing missing paths from JSONL. "
+                "Fix file paths or regenerate metadata.jsonl so each line points to existing PNGs."
+            )
+
     with accelerator.main_process_first():
-        train_dataset = dataset["train"].shuffle(seed=args.seed)
+        train_dataset = train_split.shuffle(seed=args.seed)
         if args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(args.max_train_samples))
     return train_dataset
