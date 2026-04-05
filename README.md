@@ -1,90 +1,61 @@
-# ControlNet Dataset Generator
+# Stereoscopic 180 SBS LoRA Trainer
 
-A desktop application for generating ControlNet training datasets from 360° and 180° immersive footage. Point it at your equirectangular video files or images, configure extraction parameters, and generate paired rectilinear → equirect training data ready for ControlNet fine-tuning.
+Desktop app + Python tools to build **FLUX.1-dev LoRA** training data from **360° / 180° / 180° side-by-side stereo** media, then train a LoRA that generates **stereoscopic 180° half-equirect SBS** images from text.
 
 Built by Light Sail VR.
 
 ---
 
-## What It Does
+## What it does
 
-For each source equirectangular frame, the tool:
+1. **Dataset builder** (`python/equirect_dataset_generator.py`): extracts frames, resizes to **2:1** (width = 2× height), writes `frames/<id>.png`, caption sidecars `frames/<id>.txt`, optional **disparity maps** in `depth/` (OpenCV stereo, 180 SBS only), and `dataset_manifest.json`.
+2. **Prepare** (`train/prepare_dataset.py`): symlinks into `train_ready/images/`, optional `train_ready/depth/`, writes `metadata.jsonl` for training.
+3. **Train** (`train/train_lora.py` + `train/train_lora_flux.py`): runs **Hugging Face diffusers** Flux LoRA training (`accelerate launch`) with your JSONL manifest.
 
-1. Extracts frames from video at your specified interval (or loads images directly)
-2. Generates multiple randomized rectilinear perspective crops (simulating "normal" camera views)
-3. Pairs each crop with the corresponding full equirectangular frame
-4. Outputs everything in a structured dataset ready for ControlNet training
+**Base model:** `black-forest-labs/FLUX.1-dev` (configurable in `train/configs/presets.py` for a future FLUX.2 swap).
 
-The result is a dataset of **conditioning images** (rectilinear crops) and **target images** (equirect frames) that teaches a ControlNet the mapping from flat perspective views to 360° panoramic output.
+**Inference:** text prompt → stereo 180 SBS image; no input stereo pair required. Optional Phase 2: stack **FLUX.1-Depth-dev-lora** with your LoRA for depth-guided generation (not wired in this repo UI yet).
 
 ---
 
 ## Prerequisites
 
-You need three things installed on your Mac before running the app:
-
-### 1. Node.js (for Electron)
+### Node.js (Electron)
 
 ```bash
-# Check if you have it
-node --version
-
-# If not, install via Homebrew
-brew install node
-
-# Or download from https://nodejs.org (LTS version recommended)
+brew install node   # or https://nodejs.org
 ```
 
-### 2. Python 3 + packages
+### Python 3 + dataset packages
 
 ```bash
-# Check if you have Python 3
 python3 --version
-
-# If not, install via Homebrew
-brew install python@3.11
-
-# Install required Python packages
-pip3 install py360convert opencv-python-headless numpy Pillow
+pip3 install opencv-python-headless numpy Pillow
 ```
 
-**If you use conda/miniconda:**
+### Training stack (separate venv recommended)
+
+From the repo root:
+
 ```bash
-conda activate your_env
-pip install py360convert opencv-python-headless numpy Pillow
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r train/requirements_mac.txt   # or requirements_nvidia.txt on CUDA
 ```
 
-**Note:** The app auto-detects Python at these paths:
-- `python3` (system PATH)
-- `/opt/homebrew/bin/python3` (Apple Silicon Homebrew)
-- `/usr/local/bin/python3` (Intel Homebrew)
-- `~/miniconda3/bin/python3`
-- `~/anaconda3/bin/python3`
-
-### 3. ffmpeg (for video file support)
+### ffmpeg (video only)
 
 ```bash
-# Check if you have it
-ffmpeg -version
-
-# If not, install via Homebrew
 brew install ffmpeg
 ```
-
-Images work without ffmpeg — it's only needed if you're processing video files.
 
 ---
 
 ## Installation
 
 ```bash
-# Clone or copy the project folder, then:
 cd controlnet-dataset-generator
-
-# Install Electron
 npm install
-
-# That's it — run the app
 npm start
 ```
 
@@ -92,169 +63,51 @@ npm start
 
 ## Usage
 
-### Desktop App (Recommended)
+### App
+
+1. **Select** video/image files or a folder.
+2. Set **Source type** (default **180° SBS**), **frame interval**, **frame height** (output width = 2× height).
+3. Edit **caption prefix** (trigger tokens for the LoRA).
+4. Toggle **disparity depth maps** (SBS only).
+5. **Build LoRA dataset** → review → **Train LoRA** (prepares `train_ready/` then runs training).
+
+### CLI — dataset
 
 ```bash
-npm start
+python3 python/equirect_dataset_generator.py footage.mov -o ./dataset -t 180sbs -r 512
+python3 python/equirect_dataset_generator.py --no-depth ./stills/ -o ./dataset -t 180sbs
 ```
 
-1. The app checks your dependencies on launch (green dot = ready)
-2. Click **Select Files** or **Select Folder** to add media
-3. Configure extraction settings:
-   - **Source Type**: 360° equirect, 180° equirect, or 180° SBS stereo
-   - **Frame Interval**: Extract every Nth frame from video (lower = more frames)
-   - **Crops per Frame**: How many rectilinear perspectives to generate per source frame
-   - **Training/Conditioning Resolution**: Output image sizes
-   - **FOV Range**: Simulated lens field of view (60°–110° covers wide-to-normal)
-   - **Horizon Bias**: What % of crops cluster near the horizon (where the action usually is)
-4. Choose an output directory
-5. Click **Generate Dataset**
-
-### CLI Mode
-
-The Python script also works standalone:
+### CLI — prepare + train
 
 ```bash
-# Single video file
-python3 python/equirect_dataset_generator.py my_360_footage.mov -o ./dataset
-
-# Entire folder of media
-python3 python/equirect_dataset_generator.py /path/to/footage/ -o ./dataset
-
-# 180° SBS stereo, denser extraction
-python3 python/equirect_dataset_generator.py my_180sbs.mov \
-    --source-type 180sbs \
-    --frame-interval 15 \
-    --crops-per-frame 15 \
-    --training-res 1024
-
-# Full options
-python3 python/equirect_dataset_generator.py input.mov \
-    -o ./dataset \
-    -t 360 \
-    -i 30 \
-    -c 10 \
-    -r 512 \
-    --conditioning-res 512 \
-    --fov-min 60 \
-    --fov-max 110 \
-    --horizon-bias 0.7 \
-    --seed 42
+python3 train/prepare_dataset.py ./dataset
+python3 train/train_lora.py --dataset ./dataset --preset macbook_m4_max
+python3 train/train_lora.py --detect-hardware
 ```
 
 ---
 
-## Output Structure
+## Output layout
 
 ```
 dataset/
-├── source_equirects/    ← Original extracted frames (full resolution)
-│   ├── my_video/        ← Subfolder per video file
-│   │   ├── frame_000001.png
-│   │   └── ...
-│   └── panorama.png     ← Image files stored directly
-├── conditioning/        ← Rectilinear perspective crops (conditioning inputs)
-│   ├── my_video_frame_000001_y180_p-5_f90.png
-│   └── ...
-├── target/              ← Equirect frames resized to training resolution
-│   ├── my_video_frame_000001.png
-│   └── ...
-├── metadata/            ← Per-crop JSON with extraction parameters
-│   ├── my_video_frame_000001_y180_p-5_f90.json
-│   └── ...
-├── pairs.json           ← Master manifest linking all pairs
-└── generation_results.json  ← Summary stats
+├── frames/                 # PNG + .txt captions
+├── depth/                  # optional disparity (180 SBS)
+├── source_equirects/       # extracted video frames
+├── dataset_manifest.json   # master list
+├── pairs.json              # legacy summary for the UI
+├── train_ready/
+│   ├── images/             # symlinks + captions
+│   ├── depth/              # optional
+│   └── metadata.jsonl      # image + text (+ optional depth_image)
+└── training_output/<ts>/   # LoRA weights, checkpoints, validation_samples/
 ```
-
-### pairs.json Format
-
-```json
-{
-  "generator": "equirect_dataset_generator.py",
-  "total_pairs": 15000,
-  "total_frames": 1500,
-  "config": { ... },
-  "pairs": [
-    {
-      "conditioning": "conditioning/my_video_frame_000001_y180_p-5_f90.png",
-      "target": "target/my_video_frame_000001.png",
-      "metadata": "metadata/my_video_frame_000001_y180_p-5_f90.json",
-      "yaw": 180.0,
-      "pitch": -5.23,
-      "fov_deg": 90.41,
-      "source_frame": "my_video_frame_000001",
-      "source_file": "my_video.mov"
-    }
-  ]
-}
-```
-
----
-
-## Supported Formats
-
-### Video (requires ffmpeg)
-MOV, MP4, MKV, AVI, MXF, WebM, M4V, MPG, MPEG, TS, MTS, M2TS, WMV, FLV, 3GP, OGV, R3D, BRAW
-
-### Image
-JPG/JPEG, PNG, TIFF/TIF, EXR, HDR, BMP, WebP, DPX
-
----
-
-## Training Tips
-
-- **Minimum dataset size**: Aim for 5,000+ pairs. 50,000+ is ideal for production quality.
-- **Resolution**: 512px is standard for SDXL ControlNet. Use 1024px for Flux-based models.
-- **Diversity**: Use footage from many different scenes, lighting conditions, and environments.
-- **Horizon bias**: 70% is a good default for eye-level content. Reduce for architectural or aerial footage.
-- **FOV range**: 60–110° covers the range from telephoto to ultrawide. If your inference input will always be ~90° FOV, narrow the training range to 80–100°.
-
-### Using the Dataset for Training
-
-The output is structured for use with:
-
-- **diffusers** ControlNet training scripts
-- **kohya_ss** (sd-scripts) with custom dataset config
-- **SimpleTuner** with paired image datasets
-
-Point the training config at `conditioning/` for input images and `target/` for ground truth. The `pairs.json` manifest provides the mapping.
-
----
-
-## Troubleshooting
-
-**"Python 3 not found"**
-Make sure `python3` is on your PATH. On Apple Silicon Macs with Homebrew:
-```bash
-echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-**"Missing Python packages"**
-```bash
-pip3 install py360convert opencv-python-headless numpy Pillow
-```
-If you have multiple Python installs, make sure you're installing to the right one:
-```bash
-python3 -m pip install py360convert opencv-python-headless numpy Pillow
-```
-
-**"ffmpeg not found"**
-```bash
-brew install ffmpeg
-```
-
-**EXR/HDR files look wrong**
-The tool tonemaps HDR to 8-bit LDR for training. If your source footage is in linear light EXR, the automatic tonemapping may not be ideal. Consider pre-converting to PNG with your preferred tonemap curve in DaVinci Resolve or similar.
-
-**Large datasets running slowly**
-The bottleneck is usually disk I/O for writing PNGs. Consider:
-- Using an SSD for the output directory
-- Reducing conditioning resolution if you don't need 1024px
-- Processing on a machine with fast storage
 
 ---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+Credits: Light Sail VR.

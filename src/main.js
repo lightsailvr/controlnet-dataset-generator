@@ -60,6 +60,35 @@ function isSupported(filePath) {
   return SUPPORTED_EXTENSIONS.includes(getExt(filePath));
 }
 
+/** LoRA v1 datasets use frames/; legacy ControlNet used target/ */
+function datasetImageSubdir(datasetDir) {
+  return fs.existsSync(path.join(datasetDir, "dataset_manifest.json")) ? "frames" : "target";
+}
+
+function writePairsFromManifest(manifest, datasetDir) {
+  const pairs = (manifest.samples || []).map((s) => ({
+    conditioning: s.depth || s.image,
+    target: s.image,
+    metadata: s.caption_file,
+    source_frame: s.id,
+    source_file: s.source_file,
+  }));
+  fs.writeFileSync(
+    path.join(datasetDir, "pairs.json"),
+    JSON.stringify(
+      {
+        generator: "equirect_dataset_generator.py",
+        format: "stereo_lora_v1",
+        total_pairs: pairs.length,
+        total_frames: pairs.length,
+        pairs,
+      },
+      null,
+      2
+    )
+  );
+}
+
 function collectFiles(dirPath) {
   const results = [];
   try {
@@ -180,7 +209,7 @@ ipcMain.handle("check-dependencies", async () => {
   // Check for required packages
   try {
     const result = require("child_process").execSync(
-      `${pythonPath} -c "import py360convert; import cv2; import numpy; print('ok')"`,
+      `${pythonPath} -c "import cv2; import numpy; print('ok')"`,
       { timeout: 10000 }
     );
     if (result.toString().trim() === "ok") {
@@ -295,31 +324,48 @@ ipcMain.handle("select-dataset-dir", async () => {
   if (result.canceled) return null;
 
   const dir = result.filePaths[0];
+  const manifestPath = path.join(dir, "dataset_manifest.json");
   const pairsPath = path.join(dir, "pairs.json");
-  if (!fs.existsSync(pairsPath)) {
-    return { error: "no_pairs_json", message: "Selected folder does not contain a pairs.json manifest." };
+  if (!fs.existsSync(manifestPath) && !fs.existsSync(pairsPath)) {
+    return {
+      error: "no_manifest",
+      message: "Selected folder needs dataset_manifest.json (or legacy pairs.json).",
+    };
   }
   return { ok: true, path: dir };
 });
 
 ipcMain.handle("load-dataset", async (event, dir) => {
   try {
+    const manifestPath = path.join(dir, "dataset_manifest.json");
     const pairsPath = path.join(dir, "pairs.json");
-    const manifest = JSON.parse(fs.readFileSync(pairsPath, "utf-8"));
+    const useV1 = fs.existsSync(manifestPath);
+    const manifest = JSON.parse(
+      fs.readFileSync(useV1 ? manifestPath : pairsPath, "utf-8")
+    );
 
-    // Group pairs by source_frame to get unique frames
     const frameMap = new Map();
-    for (const pair of manifest.pairs) {
-      const name = pair.source_frame;
-      if (!frameMap.has(name)) {
-        frameMap.set(name, { name, pairCount: 0, sourceFile: pair.source_file });
+    if (useV1 && Array.isArray(manifest.samples)) {
+      for (const s of manifest.samples) {
+        const name = s.id;
+        if (!frameMap.has(name)) {
+          frameMap.set(name, { name, pairCount: 1, sourceFile: s.source_file });
+        }
       }
-      frameMap.get(name).pairCount++;
+    } else {
+      for (const pair of manifest.pairs || []) {
+        const name = pair.source_frame;
+        if (!frameMap.has(name)) {
+          frameMap.set(name, { name, pairCount: 0, sourceFile: pair.source_file });
+        }
+        frameMap.get(name).pairCount++;
+      }
     }
 
     const frames = [];
     for (const [name, info] of frameMap) {
-      const targetPath = path.join(dir, "target", `${name}.png`);
+      const rel = useV1 ? `frames/${name}.png` : `target/${name}.png`;
+      const targetPath = path.join(dir, rel);
       if (fs.existsSync(targetPath)) {
         frames.push({
           name,
@@ -352,12 +398,17 @@ ipcMain.handle("load-dataset", async (event, dir) => {
     }
     const sourceFiles = [...sourceMap.values()];
 
+    const totalListed = useV1
+      ? (manifest.total_samples ?? manifest.samples?.length ?? 0)
+      : (manifest.total_pairs || (manifest.pairs || []).length);
+
     return {
       ok: true,
       frames,
       sourceFiles,
-      totalPairs: manifest.total_pairs || manifest.pairs.length,
+      totalPairs: totalListed,
       totalFrames: frames.length,
+      format: useV1 ? "stereo_lora_v1" : "legacy_pairs",
     };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -370,6 +421,7 @@ ipcMain.handle("generate-thumbnails", async (event, { datasetDir, frameNames }) 
     fs.mkdirSync(thumbDir, { recursive: true });
   }
 
+  const sub = datasetImageSubdir(datasetDir);
   const thumbnails = {};
   for (const name of frameNames) {
     const cachedPath = path.join(thumbDir, `${name}.jpg`);
@@ -381,8 +433,7 @@ ipcMain.handle("generate-thumbnails", async (event, { datasetDir, frameNames }) 
       continue;
     }
 
-    // Generate thumbnail from target image
-    const targetPath = path.join(datasetDir, "target", `${name}.png`);
+    const targetPath = path.join(datasetDir, sub, `${name}.png`);
     if (!fs.existsSync(targetPath)) continue;
 
     try {
@@ -420,7 +471,8 @@ ipcMain.handle("generate-source-thumbnails", async (event, { datasetDir, sources
       continue;
     }
 
-    const targetPath = path.join(datasetDir, "target", `${frameName}.png`);
+    const sub = datasetImageSubdir(datasetDir);
+    const targetPath = path.join(datasetDir, sub, `${frameName}.png`);
     if (!fs.existsSync(targetPath)) continue;
 
     try {
@@ -440,6 +492,71 @@ ipcMain.handle("generate-source-thumbnails", async (event, { datasetDir, sources
 
 ipcMain.handle("delete-sources", async (event, { datasetDir, sourceNames }) => {
   try {
+    const dmPath = path.join(datasetDir, "dataset_manifest.json");
+    if (fs.existsSync(dmPath)) {
+      const manifest = JSON.parse(fs.readFileSync(dmPath, "utf-8"));
+      const del = new Set(sourceNames);
+      const samples = manifest.samples || [];
+      const toDelete = samples.filter((s) => del.has(s.source_file));
+      const toKeep = samples.filter((s) => !del.has(s.source_file));
+      const deletedSourceDirs = new Set();
+      for (const s of toDelete) {
+        try {
+          fs.unlinkSync(path.join(datasetDir, s.image));
+        } catch {}
+        try {
+          fs.unlinkSync(path.join(datasetDir, s.caption_file));
+        } catch {}
+        if (s.depth) {
+          try {
+            fs.unlinkSync(path.join(datasetDir, s.depth));
+          } catch {}
+        }
+        try {
+          fs.unlinkSync(path.join(datasetDir, ".thumbs", `${s.id}.jpg`));
+        } catch {}
+        const videoStem = path.parse(s.source_file).name;
+        const sourceDir = path.join(datasetDir, "source_equirects", videoStem);
+        const frameSuffix = s.id.startsWith(videoStem + "_")
+          ? s.id.slice(videoStem.length + 1)
+          : s.id;
+        const sourceFile = path.join(sourceDir, `${frameSuffix}.png`);
+        try {
+          fs.unlinkSync(sourceFile);
+        } catch {}
+        deletedSourceDirs.add(sourceDir);
+      }
+      for (const dir of deletedSourceDirs) {
+        try {
+          if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+        } catch {}
+      }
+      for (const srcName of sourceNames) {
+        try {
+          fs.unlinkSync(path.join(datasetDir, ".thumbs", `_src_${srcName}.jpg`));
+        } catch {}
+      }
+      manifest.samples = toKeep;
+      manifest.total_samples = toKeep.length;
+      fs.writeFileSync(dmPath, JSON.stringify(manifest, null, 2));
+      writePairsFromManifest(manifest, datasetDir);
+      const resultsPath = path.join(datasetDir, "generation_results.json");
+      try {
+        const results = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+        results.total_samples = toKeep.length;
+        results.total_frames = toKeep.length;
+        fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
+      } catch {}
+      return {
+        ok: true,
+        deletedSources: sourceNames.length,
+        deletedFrames: toDelete.length,
+        deletedPairs: toDelete.length,
+        remainingFrames: toKeep.length,
+        remainingPairs: toKeep.length,
+      };
+    }
+
     const pairsPath = path.join(datasetDir, "pairs.json");
     const manifest = JSON.parse(fs.readFileSync(pairsPath, "utf-8"));
 
@@ -528,6 +645,65 @@ ipcMain.handle("delete-sources", async (event, { datasetDir, sourceNames }) => {
 
 ipcMain.handle("delete-frames", async (event, { datasetDir, frameNames }) => {
   try {
+    const dmPath = path.join(datasetDir, "dataset_manifest.json");
+    if (fs.existsSync(dmPath)) {
+      const manifest = JSON.parse(fs.readFileSync(dmPath, "utf-8"));
+      const del = new Set(frameNames);
+      const samples = manifest.samples || [];
+      const toDelete = samples.filter((s) => del.has(s.id));
+      const toKeep = samples.filter((s) => !del.has(s.id));
+      const deletedSourceDirs = new Set();
+      for (const s of toDelete) {
+        try {
+          fs.unlinkSync(path.join(datasetDir, s.image));
+        } catch {}
+        try {
+          fs.unlinkSync(path.join(datasetDir, s.caption_file));
+        } catch {}
+        if (s.depth) {
+          try {
+            fs.unlinkSync(path.join(datasetDir, s.depth));
+          } catch {}
+        }
+        try {
+          fs.unlinkSync(path.join(datasetDir, ".thumbs", `${s.id}.jpg`));
+        } catch {}
+        const videoStem = path.parse(s.source_file).name;
+        const sourceDir = path.join(datasetDir, "source_equirects", videoStem);
+        const frameSuffix = s.id.startsWith(videoStem + "_")
+          ? s.id.slice(videoStem.length + 1)
+          : s.id;
+        const sourceFile = path.join(sourceDir, `${frameSuffix}.png`);
+        try {
+          fs.unlinkSync(sourceFile);
+        } catch {}
+        deletedSourceDirs.add(sourceDir);
+      }
+      for (const dir of deletedSourceDirs) {
+        try {
+          if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+        } catch {}
+      }
+      manifest.samples = toKeep;
+      manifest.total_samples = toKeep.length;
+      fs.writeFileSync(dmPath, JSON.stringify(manifest, null, 2));
+      writePairsFromManifest(manifest, datasetDir);
+      const resultsPath = path.join(datasetDir, "generation_results.json");
+      try {
+        const results = JSON.parse(fs.readFileSync(resultsPath, "utf-8"));
+        results.total_samples = toKeep.length;
+        results.total_frames = toKeep.length;
+        fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
+      } catch {}
+      return {
+        ok: true,
+        deletedFrames: frameNames.length,
+        deletedPairs: toDelete.length,
+        remainingFrames: toKeep.length,
+        remainingPairs: toKeep.length,
+      };
+    }
+
     const pairsPath = path.join(datasetDir, "pairs.json");
     const manifest = JSON.parse(fs.readFileSync(pairsPath, "utf-8"));
 
@@ -655,7 +831,7 @@ ipcMain.handle("detect-hardware", async () => {
   const pythonPath = findTrainingPython();
   if (!pythonPath) return { ok: false, error: "python3_not_found" };
 
-  const scriptPath = path.join(__dirname, "..", "train", "train_controlnet.py");
+  const scriptPath = path.join(__dirname, "..", "train", "train_lora.py");
   try {
     const result = require("child_process").execSync(
       `${pythonPath} ${scriptPath} --detect-hardware`,
@@ -713,7 +889,7 @@ ipcMain.handle("start-training", async (event, { datasetDir, preset, overrides, 
   const pythonPath = findTrainingPython();
   if (!pythonPath) return { ok: false, error: "Python 3 not found" };
 
-  const scriptPath = path.join(__dirname, "..", "train", "train_controlnet.py");
+  const scriptPath = path.join(__dirname, "..", "train", "train_lora.py");
 
   // Write temp job file
   const jobFile = path.join(os.tmpdir(), `train_job_${Date.now()}.json`);
@@ -771,26 +947,33 @@ ipcMain.handle("get-training-progress", async (event, progressFile) => {
   try {
     const data = JSON.parse(fs.readFileSync(progressFile, "utf-8"));
 
-    // Load validation images as base64
+    // Load validation images as base64 (structured: {step, conditioning, samples})
     if (data.validation_images && data.validation_images.length > 0) {
-      const loaded = [];
-      for (const imgPath of data.validation_images.slice(-8)) {
+      const loadImg = (imgPath) => {
         const fullPath = path.isAbsolute(imgPath)
           ? imgPath
           : path.join(path.dirname(progressFile), imgPath);
-        if (fs.existsSync(fullPath)) {
-          try {
-            const img = nativeImage.createFromPath(fullPath);
-            if (!img.isEmpty()) {
-              const resized = img.resize({ height: 256 });
-              const buf = resized.toJPEG(80);
-              loaded.push({
-                path: imgPath,
-                dataUri: `data:image/jpeg;base64,${buf.toString("base64")}`,
-              });
-            }
-          } catch {}
+        if (!fs.existsSync(fullPath)) return null;
+        try {
+          const img = nativeImage.createFromPath(fullPath);
+          if (img.isEmpty()) return null;
+          const resized = img.resize({ height: 256 });
+          return {
+            path: imgPath,
+            dataUri: `data:image/jpeg;base64,${resized.toJPEG(80).toString("base64")}`,
+          };
+        } catch { return null; }
+      };
+
+      const loaded = [];
+      for (const entry of data.validation_images.slice(-8)) {
+        const out = { step: entry.step, conditioning: null, samples: [] };
+        if (entry.conditioning) out.conditioning = loadImg(entry.conditioning);
+        for (const sp of (entry.samples || [])) {
+          const s = loadImg(sp);
+          if (s) out.samples.push(s);
         }
+        if (out.conditioning || out.samples.length > 0) loaded.push(out);
       }
       data.validation_images_loaded = loaded;
     }

@@ -1,7 +1,7 @@
 {
   "name": "controlnet-dataset-generator",
   "version": "1.0.0",
-  "description": "Generate ControlNet training datasets from 360°/180° footage",
+  "description": "Stereoscopic 180 SBS LoRA dataset builder and FLUX LoRA training (Electron)",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ControlNet Dataset Generator</title>
+  <title>Stereoscopic 180 SBS LoRA Trainer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -1068,6 +1068,7 @@
       display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 2px;
     }
     .val-thumb {
+      position: relative;
       flex-shrink: 0; width: 64px; height: 48px;
       border-radius: 4px; border: 2px solid transparent;
       overflow: hidden; cursor: pointer; opacity: 0.5;
@@ -1076,6 +1077,24 @@
     .val-thumb:hover { opacity: 0.8; }
     .val-thumb.active { opacity: 1; border-color: var(--accent); }
     .val-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .val-thumb-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      text-align: center; font-size: 8px; padding: 1px 0;
+      font-family: 'JetBrains Mono', monospace;
+      color: #fff; background: rgba(0,0,0,0.65);
+    }
+    .val-ref {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 0; margin: 2px 0 4px;
+    }
+    .val-ref img {
+      width: 48px; height: 36px; border-radius: 4px;
+      object-fit: cover; border: 1px solid var(--border); opacity: 0.7;
+    }
+    .val-ref span {
+      font-size: 11px; color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
 
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 6px; }
@@ -1093,15 +1112,12 @@
       view: "setup",           // setup | processing | complete | review-sources | review
       files: [],
       config: {
-        sourceType: "360",
+        sourceType: "180sbs",
         frameInterval: 30,
-        cropsPerFrame: 10,
         trainingRes: 512,
-        conditioningRes: 512,
         seed: 42,
-        fovMin: 60,
-        fovMax: 110,
-        horizonBias: 0.7,
+        captionPrefix: "stereo180sbs, stereoscopic 180 VR side by side half equirectangular",
+        extractDepth: true,
       },
       outputDir: null,
       depStatus: "checking",   // checking | ok | error
@@ -1254,7 +1270,7 @@
       // Titlebar
       const titlebar = h("div", { className: "titlebar" },
         h("div", { className: "titlebar-icon" }, ICONS.sphere()),
-        h("h1", {}, "ControlNet Dataset Generator"),
+        h("h1", {}, "Stereoscopic 180 SBS LoRA Trainer"),
         h("span", { className: "titlebar-sub" }, "Light Sail VR"),
       );
       app.appendChild(titlebar);
@@ -1293,7 +1309,7 @@
         } else if (state.depError === "ffmpeg_not_found") {
           instructions = "ffmpeg was not found on your system.\n\nInstall via Homebrew:\n  brew install ffmpeg";
         } else if (state.depError === "packages_missing") {
-          instructions = "Required Python packages are missing.\n\nInstall them with:\n  pip3 install py360convert opencv-python-headless numpy Pillow";
+          instructions = "Required Python packages are missing.\n\nInstall them with:\n  pip3 install opencv-python-headless numpy Pillow";
         }
         depCheck.appendChild(h("div", { className: "dep-details" }, instructions));
         depCheck.appendChild(h("div", { className: "dep-actions" },
@@ -1329,7 +1345,7 @@
         h("button", { className: "btn btn-secondary", onClick: selectFiles }, ICONS.film(), " Select Files"),
         h("button", { className: "btn btn-secondary", onClick: selectFolder }, ICONS.folder(), " Select Folder"),
         h("button", { className: "btn btn-secondary", onClick: reviewExistingDataset, style: { marginLeft: "8px", borderColor: "var(--accent-dim)", color: "var(--accent)" } }, ICONS.image(), " Review Existing Dataset"),
-        h("button", { className: "btn btn-secondary", onClick: trainExistingDataset, style: { borderColor: "var(--accent-dim)", color: "var(--accent)" } }, ICONS.play(), " Train ControlNet"),
+        h("button", { className: "btn btn-secondary", onClick: trainExistingDataset, style: { borderColor: "var(--accent-dim)", color: "var(--accent)" } }, ICONS.play(), " Train LoRA"),
       ));
 
       container.appendChild(dropZone);
@@ -1355,7 +1371,7 @@
           className: "btn btn-primary",
           onClick: startProcessing,
           ...(canStart ? {} : { disabled: "true" }),
-        }, ICONS.play(), " Generate Dataset"),
+        }, ICONS.play(), " Build LoRA dataset"),
       );
       container.appendChild(actionBar);
     }
@@ -1396,7 +1412,7 @@
 
     function renderConfig(container) {
       const panel = h("div", { className: "config-panel" });
-      panel.appendChild(h("div", { className: "config-title" }, "Extraction Settings"));
+      panel.appendChild(h("div", { className: "config-title" }, "LoRA dataset settings"));
 
       const grid = h("div", { className: "config-grid" });
 
@@ -1414,14 +1430,11 @@
       grid.appendChild(sourceGroup);
 
       // Frame Interval
-      grid.appendChild(makeSlider("Frame Interval", "extract every Nth frame", "frameInterval", 1, 300, false, true));
+      grid.appendChild(makeSlider("Frame Interval", "extract every Nth frame (video)", "frameInterval", 1, 300, false, true));
 
-      // Crops per Frame
-      grid.appendChild(makeSlider("Crops per Frame", "rectilinear extractions", "cropsPerFrame", 1, 30));
-
-      // Training Resolution
+      // Training Resolution (short side → 2:1 output)
       const resGroup = h("div", { className: "config-group" });
-      resGroup.appendChild(h("label", {}, "Training Resolution ", h("span", { className: "label-hint" }, "target equirect height")));
+      resGroup.appendChild(h("label", {}, "Frame height ", h("span", { className: "label-hint" }, "width = 2× height (SBS / equirect)")));
       const resRadios = h("div", { className: "radio-group" });
       [256, 512, 768, 1024].forEach(v => {
         resRadios.appendChild(h("button", {
@@ -1432,44 +1445,33 @@
       resGroup.appendChild(resRadios);
       grid.appendChild(resGroup);
 
-      // Conditioning Resolution
-      const condGroup = h("div", { className: "config-group" });
-      condGroup.appendChild(h("label", {}, "Conditioning Resolution ", h("span", { className: "label-hint" }, "rectilinear crop size")));
-      const condRadios = h("div", { className: "radio-group" });
-      [256, 512, 768, 1024].forEach(v => {
-        condRadios.appendChild(h("button", {
-          className: `radio-btn ${state.config.conditioningRes === v ? "active" : ""}`,
-          onClick: () => { state.config.conditioningRes = v; render(); },
-        }, `${v}px`));
+      // Caption prefix
+      const capGroup = h("div", { className: "config-group" });
+      capGroup.appendChild(h("label", {}, "Caption prefix ", h("span", { className: "label-hint" }, "written to each .txt sidecar")));
+      const capInput = h("input", {
+        className: "num-input",
+        type: "text",
+        style: { width: "100%", maxWidth: "none", fontFamily: "inherit" },
+        value: state.config.captionPrefix,
       });
-      condGroup.appendChild(condRadios);
-      grid.appendChild(condGroup);
+      capInput.addEventListener("input", (e) => { state.config.captionPrefix = e.target.value; });
+      capGroup.appendChild(capInput);
+      grid.appendChild(capGroup);
 
-      // FOV Range
-      const fovGroup = h("div", { className: "config-group" });
-      fovGroup.appendChild(h("label", {}, "FOV Range ", h("span", { className: "label-hint" }, "simulated lens field of view")));
-      const fovRow = h("div", { className: "input-row dual" });
-      fovRow.appendChild(h("span", { className: "range-label" }, "Min"));
-      const fovMinSlider = h("input", { type: "range", min: "30", max: "120", value: String(state.config.fovMin) });
-      fovMinSlider.addEventListener("input", (e) => {
-        state.config.fovMin = Math.min(+e.target.value, state.config.fovMax - 5);
-        render();
-      });
-      fovRow.appendChild(fovMinSlider);
-      fovRow.appendChild(h("span", { className: "range-val" }, `${state.config.fovMin}°`));
-      fovRow.appendChild(h("span", { className: "range-label" }, "Max"));
-      const fovMaxSlider = h("input", { type: "range", min: "30", max: "120", value: String(state.config.fovMax) });
-      fovMaxSlider.addEventListener("input", (e) => {
-        state.config.fovMax = Math.max(+e.target.value, state.config.fovMin + 5);
-        render();
-      });
-      fovRow.appendChild(fovMaxSlider);
-      fovRow.appendChild(h("span", { className: "range-val" }, `${state.config.fovMax}°`));
-      fovGroup.appendChild(fovRow);
-      grid.appendChild(fovGroup);
-
-      // Horizon Bias
-      grid.appendChild(makeSlider("Horizon Bias", "% of crops near horizon (±15°)", "horizonBias", 0, 100, true));
+      // Extract depth (SBS only)
+      const depthGroup = h("div", { className: "config-group" });
+      depthGroup.appendChild(h("label", {}, "Disparity depth maps"));
+      const depthRow = h("div", { className: "radio-group" });
+      depthRow.appendChild(h("button", {
+        className: `radio-btn ${state.config.extractDepth ? "active" : ""}`,
+        onClick: () => { state.config.extractDepth = true; render(); },
+      }, "On (180 SBS)"));
+      depthRow.appendChild(h("button", {
+        className: `radio-btn ${!state.config.extractDepth ? "active" : ""}`,
+        onClick: () => { state.config.extractDepth = false; render(); },
+      }, "Off"));
+      depthGroup.appendChild(depthRow);
+      grid.appendChild(depthGroup);
 
       // Seed
       const seedGroup = h("div", { className: "config-group" });
@@ -1536,32 +1538,22 @@
       const imageCount = state.files.filter(f => f.type === "image").length;
       const estFramesPerVideo = Math.floor((30 * 60) / state.config.frameInterval);
       const totalFrames = videoCount * estFramesPerVideo + imageCount;
-      const totalPairs = totalFrames * state.config.cropsPerFrame;
+      const totalSamples = totalFrames;
 
       const bar = h("div", { className: "estimate-bar" });
-      bar.appendChild(h("div", { className: "estimate-label" }, "Estimated Output (assumes ~60s avg per video at 30fps)"));
+      bar.appendChild(h("div", { className: "estimate-label" }, "Estimated output (assumes ~60s avg per video at 30fps)"));
 
       const stats = h("div", { className: "estimate-stats" },
-        h("div", { className: "est-item" },
-          h("span", { className: "est-num" }, totalFrames.toLocaleString()),
-          h("span", { className: "est-label" }, "source frames"),
-        ),
-        h("div", { className: "est-sep" }, "×"),
-        h("div", { className: "est-item" },
-          h("span", { className: "est-num" }, String(state.config.cropsPerFrame)),
-          h("span", { className: "est-label" }, "crops each"),
-        ),
-        h("div", { className: "est-sep" }, "="),
         h("div", { className: "est-item highlight" },
-          h("span", { className: "est-num" }, totalPairs.toLocaleString()),
-          h("span", { className: "est-label" }, "training pairs"),
+          h("span", { className: "est-num" }, totalSamples.toLocaleString()),
+          h("span", { className: "est-label" }, "training images (1 per frame)"),
         ),
       );
       bar.appendChild(stats);
 
-      if (totalPairs < 5000) {
+      if (totalSamples < 500) {
         bar.appendChild(h("div", { className: "estimate-warn" },
-          "⚠ Minimum ~5,000 pairs recommended for ControlNet training. Add more source files or increase crops per frame."
+          "Tip: 1k–2k+ diverse stereo 180 frames with captions usually give stronger LoRAs. Add more sources or tighten frame interval."
         ));
       }
 
@@ -1625,8 +1617,8 @@
 
       view.appendChild(h("div", { className: "results-grid" },
         h("div", { className: "result-card" },
-          h("span", { className: "result-num" }, (r.total_pairs || 0).toLocaleString()),
-          h("span", { className: "result-label" }, "Training Pairs"),
+          h("span", { className: "result-num" }, ((r.total_samples ?? r.total_frames ?? r.total_pairs) || 0).toLocaleString()),
+          h("span", { className: "result-label" }, "Training images"),
         ),
         h("div", { className: "result-card" },
           h("span", { className: "result-num" }, (r.total_frames || 0).toLocaleString()),
@@ -1642,11 +1634,11 @@
       tree.appendChild(h("h3", {}, "Output Structure"));
       tree.appendChild(h("pre", { className: "tree" },
 `${state.outputDir || "dataset"}/
-├── source_equirects/   (${r.total_frames || "?"} frames)
-├── conditioning/       (${r.total_pairs || "?"} rectilinear crops)
-├── target/             (${r.total_frames || "?"} resized equirects)
-├── metadata/           (${r.total_pairs || "?"} JSON sidecars)
-└── pairs.json          (master manifest)`
+├── frames/             (${r.total_frames || r.total_samples || "?"} PNG + .txt captions)
+├── depth/              (optional disparity maps, 180 SBS)
+├── source_equirects/   (extracted video frames)
+├── dataset_manifest.json
+└── pairs.json          (legacy summary)`
       ));
       view.appendChild(tree);
 
@@ -1655,7 +1647,7 @@
           if (state.outputDir) window.api.openFolder(state.outputDir);
         } }, ICONS.folderOpen(), " Open Output Folder"),
         h("button", { className: "btn btn-primary", onClick: () => openReviewFromComplete() }, ICONS.image(), " Review & Clean Dataset"),
-        h("button", { className: "btn btn-primary", onClick: () => openTrainFromComplete(), style: { background: "var(--video-color)" } }, ICONS.play(), " Train ControlNet"),
+        h("button", { className: "btn btn-primary", onClick: () => openTrainFromComplete(), style: { background: "var(--video-color)" } }, ICONS.play(), " Train LoRA"),
         h("button", { className: "btn btn-secondary", onClick: () => {
           state.view = "setup";
           state.files = [];
@@ -2668,7 +2660,7 @@
         } else {
           delete state.trainConfig.lr_scheduler;
           delete state.trainConfig.lr_warmup_steps;
-          applyDatasetDerivedStepDefaults(state.trainDatasetPairs || 0);
+          applyDatasetDerivedStepDefaults(state.trainDatasetFrames || 0);
         }
         render();
       });
@@ -2682,18 +2674,33 @@
       valModeRow.appendChild(valLabel);
       grid.appendChild(valModeRow);
 
-      // Resolution
+      // Resolution (short side / latent training height; width = 2× for SBS)
       const resGroup = h("div", { className: "config-group" });
-      resGroup.appendChild(h("label", {}, "Resolution ", h("span", { className: "label-hint" }, "must match Flux native for best quality")));
+      resGroup.appendChild(h("label", {}, "Frame height ", h("span", { className: "label-hint" }, "training images are 2:1 (e.g. 512→1024×512)")));
       const resRadios = h("div", { className: "radio-group" });
       [512, 768, 1024].forEach(v => {
         resRadios.appendChild(h("button", {
-          className: `radio-btn ${(state.trainConfig.resolution || 1024) === v ? "active" : ""}`,
+          className: `radio-btn ${(state.trainConfig.resolution || 512) === v ? "active" : ""}`,
           onClick: () => { state.trainConfig.resolution = v; render(); },
         }, `${v}px`));
       });
       resGroup.appendChild(resRadios);
       grid.appendChild(resGroup);
+
+      const loraGroup = h("div", { className: "config-group" });
+      loraGroup.appendChild(h("label", {}, "LoRA rank / alpha"));
+      const loraRow = h("div", { className: "input-row", style: { gap: "8px" } });
+      const rankIn = h("input", { className: "num-input", type: "number", min: "8", max: "256",
+        value: String(state.trainConfig.lora_rank != null ? state.trainConfig.lora_rank : 64) });
+      rankIn.addEventListener("change", (e) => { state.trainConfig.lora_rank = +e.target.value; });
+      const alphaIn = h("input", { className: "num-input", type: "number", min: "8", max: "256",
+        value: String(state.trainConfig.lora_alpha != null ? state.trainConfig.lora_alpha : 64) });
+      alphaIn.addEventListener("change", (e) => { state.trainConfig.lora_alpha = +e.target.value; });
+      loraRow.appendChild(rankIn);
+      loraRow.appendChild(h("span", { style: { color: "var(--text-muted)" } }, "/"));
+      loraRow.appendChild(alphaIn);
+      loraGroup.appendChild(loraRow);
+      grid.appendChild(loraGroup);
 
       // Max steps
       const stepsGroup = h("div", { className: "config-group" });
@@ -2726,14 +2733,14 @@
         h("span", { className: "lr-mono" }, "train/configs/presets.py"),
         "). ",
         isMacPreset
-          ? "Apple Silicon / MPS ControlNet-style fine-tunes often use 1e-4; if loss spikes or goes NaN, try 5e-5."
+          ? "Apple Silicon / MPS FLUX LoRA often uses 1e-4; if loss spikes or NaN, try 5e-5."
           : "This CUDA preset uses 1e-5 for long, stable runs; increase only cautiously if loss barely moves.",
       ];
       if (state.trainConfig.smallDatasetValidation) {
         lrHintParts.push(
           " Small-dataset validation: keep the preset value with constant LR unless you see instability (halve) or a flat loss for a long time (on Mac, you can try up to ~2e-4 with care).",
         );
-      } else if (state.trainDatasetPairs > 0 && state.trainDatasetPairs < 5000) {
+      } else if (state.trainDatasetFrames > 0 && state.trainDatasetFrames < 5000) {
         lrHintParts.push(
           " Few pairs overfit quickly — if previews look burnt or noisy, try ",
           h("span", { className: "lr-mono" }, "5e-5"),
@@ -2793,7 +2800,7 @@
       const lockedGroup = h("div", { className: "config-group" });
       const isMac = !state.trainConfig.preset || !state.trainConfig.preset.startsWith("wsl2");
       lockedGroup.appendChild(h("div", { className: "train-locked" },
-        `Precision: bf16 (required) \u00b7 Optimizer: ${isMac ? "AdamW (MPS)" : "AdamW 8-bit (CUDA)"} \u00b7 Gradient checkpointing: on`
+        `AMP: ${isMac ? "fp16 (MPS)" : "bf16 (CUDA)"} \u00b7 Optimizer: AdamW \u00b7 Gradient checkpointing: on \u00b7 Base: FLUX.1-dev`
       ));
       grid.appendChild(lockedGroup);
 
@@ -2810,21 +2817,15 @@
       ));
 
       // Dataset info + recommendations
-      if (state.trainDatasetDir && state.trainDatasetPairs > 0) {
-        const pairs = state.trainDatasetPairs;
-        const frames = state.trainDatasetFrames;
-        const recSteps = pairs < 1000 ? 5000 : pairs < 5000 ? 15000 : pairs < 20000 ? 30000 : 50000;
+      if (state.trainDatasetDir && state.trainDatasetFrames > 0) {
+        const n = state.trainDatasetFrames;
+        const recSteps = n < 1000 ? 5000 : n < 5000 ? 15000 : n < 20000 ? 30000 : 50000;
 
         const infoBar = h("div", { className: "estimate-bar", style: { margin: "10px 0" } });
         infoBar.appendChild(h("div", { className: "estimate-stats" },
-          h("div", { className: "est-item" },
-            h("span", { className: "est-num" }, frames.toLocaleString()),
-            h("span", { className: "est-label" }, "frames"),
-          ),
-          h("div", { className: "est-sep" }, "\u00b7"),
           h("div", { className: "est-item highlight" },
-            h("span", { className: "est-num" }, pairs.toLocaleString()),
-            h("span", { className: "est-label" }, "training pairs"),
+            h("span", { className: "est-num" }, n.toLocaleString()),
+            h("span", { className: "est-label" }, "training images"),
           ),
           h("div", { className: "est-sep" }, "\u2192"),
           h("div", { className: "est-item" },
@@ -2833,13 +2834,13 @@
           ),
         ));
 
-        if (pairs < 1000) {
+        if (n < 1000) {
           infoBar.appendChild(h("div", { className: "estimate-warn" },
-            "Small dataset \u2014 good for quick validation runs. Watch for overfitting; keep training steps low."
+            "Small dataset \u2014 good for quick validation. Watch for overfitting; keep steps low."
           ));
-        } else if (pairs < 5000) {
+        } else if (n < 5000) {
           infoBar.appendChild(h("div", { className: "estimate-warn" },
-            "Moderate dataset. Good for prototyping. For production quality, aim for 10K+ pairs."
+            "Moderate size. For stronger stereo consistency, aim for 1.5k+ diverse frames when possible."
           ));
         }
 
@@ -2874,7 +2875,7 @@
       view.appendChild(h("div", { className: "train-section", style: { textAlign: "center", padding: "40px" } },
         h("div", { className: "proc-spinner" }),
         h("h2", { style: { marginTop: "16px" } }, "Preparing Dataset"),
-        h("p", { style: { color: "var(--text-dim)", marginTop: "8px" } }, "Converting to SimpleTuner format..."),
+        h("p", { style: { color: "var(--text-dim)", marginTop: "8px" } }, "Building train_ready/ and metadata.jsonl..."),
       ));
     }
 
@@ -2935,7 +2936,7 @@
       } else {
         headerSection.appendChild(h("div", { style: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" } },
           h("div", { className: "proc-spinner" }),
-          h("h2", { style: { margin: 0 } }, "Training Flux ControlNet"),
+          h("h2", { style: { margin: 0 } }, "Training FLUX LoRA"),
         ));
         headerSection.appendChild(renderRadialProgress(step, total, p.eta_seconds, state.trainLossHistory));
         headerSection.appendChild(h("div", { className: "progress-track", style: { marginTop: "12px" } },
@@ -2971,34 +2972,13 @@
         requestAnimationFrame(() => drawLossChart());
       }
 
-      // Validation timeline with A/B comparison
+      // Validation progress: conditioning vs generated, with step timeline
       if (state.trainValidationImages.length > 0) {
         const valSection = h("div", { className: "train-section" });
-        valSection.appendChild(h("h3", {}, "Validation Timeline"));
-        const imgs = state.trainValidationImages;
+        valSection.appendChild(h("h3", {}, "Validation Progress"));
+        const entries = state.trainValidationImages;
 
-        if (imgs.length >= 2) {
-          let [leftIdx, rightIdx] = state.trainValCompareIdx;
-          if (rightIdx < 0) rightIdx = imgs.length - 1;
-          leftIdx = Math.max(0, Math.min(leftIdx, imgs.length - 1));
-          rightIdx = Math.max(0, Math.min(rightIdx, imgs.length - 1));
-          if (leftIdx === rightIdx && imgs.length > 1) leftIdx = Math.max(0, rightIdx - 1);
-
-          const compare = h("div", { className: "val-compare", id: "val-compare" });
-          compare.appendChild(h("img", { src: imgs[leftIdx].dataUri, alt: "Left" }));
-
-          const overlayRight = h("div", { className: "val-overlay-right", id: "val-overlay-right", style: { width: "50%" } });
-          overlayRight.appendChild(h("img", { src: imgs[rightIdx].dataUri, alt: "Right" }));
-          compare.appendChild(overlayRight);
-
-          const divider = h("div", { className: "val-divider", id: "val-divider", style: { left: "50%" } });
-          compare.appendChild(divider);
-
-          const stepFromPath = (p) => { const m = p.match(/step[_-]?(\d+)/i); return m ? `Step ${m[1]}` : p.split("/").pop(); };
-          compare.appendChild(h("span", { className: "val-pill left" }, stepFromPath(imgs[leftIdx].path)));
-          compare.appendChild(h("span", { className: "val-pill right" }, stepFromPath(imgs[rightIdx].path)));
-          valSection.appendChild(compare);
-
+        const setupDrag = () => {
           requestAnimationFrame(() => {
             const el = document.getElementById("val-compare");
             if (!el) return;
@@ -3016,29 +2996,77 @@
             document.addEventListener("mousemove", (e) => { if (dragging) updatePos(e.clientX); });
             document.addEventListener("mouseup", () => { dragging = false; });
           });
+        };
 
-          // Filmstrip
+        if (entries.length === 1) {
+          const entry = entries[0];
+          const leftSrc = entry.conditioning?.dataUri;
+          const rightSrc = entry.samples[0]?.dataUri;
+          if (leftSrc && rightSrc) {
+            const compare = h("div", { className: "val-compare", id: "val-compare" });
+            compare.appendChild(h("img", { src: leftSrc, alt: "Conditioning" }));
+            const overlayRight = h("div", { className: "val-overlay-right", id: "val-overlay-right", style: { width: "50%" } });
+            overlayRight.appendChild(h("img", { src: rightSrc, alt: "Generated" }));
+            compare.appendChild(overlayRight);
+            compare.appendChild(h("div", { className: "val-divider", id: "val-divider", style: { left: "50%" } }));
+            compare.appendChild(h("span", { className: "val-pill left" }, "Input"));
+            compare.appendChild(h("span", { className: "val-pill right" }, `Step ${entry.step}`));
+            valSection.appendChild(compare);
+            setupDrag();
+          } else if (rightSrc) {
+            const gallery = h("div", { className: "train-val-gallery" });
+            gallery.appendChild(h("div", { className: "train-val-item" },
+              h("img", { src: rightSrc, alt: "Generated" }),
+              h("div", { className: "val-step" }, `Step ${entry.step}`),
+            ));
+            valSection.appendChild(gallery);
+          }
+        } else {
+          let [leftIdx, rightIdx] = state.trainValCompareIdx;
+          if (rightIdx < 0) rightIdx = entries.length - 1;
+          leftIdx = Math.max(0, Math.min(leftIdx, entries.length - 1));
+          rightIdx = Math.max(0, Math.min(rightIdx, entries.length - 1));
+          if (leftIdx === rightIdx && entries.length > 1) leftIdx = Math.max(0, rightIdx - 1);
+
+          const leftImg = entries[leftIdx].samples[0]?.dataUri;
+          const rightImg = entries[rightIdx].samples[0]?.dataUri;
+          if (leftImg && rightImg) {
+            const compare = h("div", { className: "val-compare", id: "val-compare" });
+            compare.appendChild(h("img", { src: leftImg, alt: "Earlier" }));
+            const overlayRight = h("div", { className: "val-overlay-right", id: "val-overlay-right", style: { width: "50%" } });
+            overlayRight.appendChild(h("img", { src: rightImg, alt: "Later" }));
+            compare.appendChild(overlayRight);
+            compare.appendChild(h("div", { className: "val-divider", id: "val-divider", style: { left: "50%" } }));
+            compare.appendChild(h("span", { className: "val-pill left" }, `Step ${entries[leftIdx].step}`));
+            compare.appendChild(h("span", { className: "val-pill right" }, `Step ${entries[rightIdx].step}`));
+            valSection.appendChild(compare);
+            setupDrag();
+          }
+
+          if (entries[0].conditioning) {
+            valSection.appendChild(h("div", { className: "val-ref" },
+              h("img", { src: entries[0].conditioning.dataUri, alt: "Conditioning" }),
+              h("span", {}, "Conditioning input"),
+            ));
+          }
+
           const strip = h("div", { className: "val-filmstrip" });
-          imgs.forEach((img, i) => {
-            const cls = (i === leftIdx || i === rightIdx) ? "val-thumb active" : "val-thumb";
-            const thumb = h("div", { className: cls, onClick: () => {
-              if (i < rightIdx) state.trainValCompareIdx = [i, rightIdx];
-              else state.trainValCompareIdx = [leftIdx, i];
-              render();
-            }});
-            thumb.appendChild(h("img", { src: img.dataUri }));
+          entries.forEach((entry, i) => {
+            if (!entry.samples[0]) return;
+            const isActive = i === leftIdx || i === rightIdx;
+            const thumb = h("div", {
+              className: isActive ? "val-thumb active" : "val-thumb",
+              onClick: () => {
+                if (i < rightIdx) state.trainValCompareIdx = [i, rightIdx];
+                else state.trainValCompareIdx = [leftIdx, i];
+                render();
+              }
+            });
+            thumb.appendChild(h("img", { src: entry.samples[0].dataUri }));
+            thumb.appendChild(h("div", { className: "val-thumb-label" }, String(entry.step)));
             strip.appendChild(thumb);
           });
           valSection.appendChild(strip);
-        } else {
-          const gallery = h("div", { className: "train-val-gallery" });
-          imgs.forEach(img => {
-            gallery.appendChild(h("div", { className: "train-val-item" },
-              h("img", { src: img.dataUri, alt: img.path }),
-              h("div", { className: "val-step" }, img.path),
-            ));
-          });
-          valSection.appendChild(gallery);
         }
         view.appendChild(valSection);
       }
@@ -3659,9 +3687,9 @@
         state.trainDatasetPairs = dataset.totalPairs;
         state.trainDatasetFrames = dataset.totalFrames;
 
-        const pairs = dataset.totalPairs;
+        const n = dataset.totalFrames || dataset.totalPairs || 0;
         if (!state.trainConfig.smallDatasetValidation) {
-          applyDatasetDerivedStepDefaults(pairs);
+          applyDatasetDerivedStepDefaults(n);
         }
       } catch {}
     }
@@ -3678,6 +3706,9 @@
           if (state.trainConfig.learning_rate == null || !Number.isFinite(state.trainConfig.learning_rate)) {
             state.trainConfig.learning_rate = presetDefaultLearningRate(hw.preset);
           }
+          if (state.trainConfig.lora_rank == null) state.trainConfig.lora_rank = 64;
+          if (state.trainConfig.lora_alpha == null) state.trainConfig.lora_alpha = 64;
+          if (state.trainConfig.resolution == null) state.trainConfig.resolution = 512;
           state.trainDepStatus = "ok";
         } else {
           state.trainDepStatus = "error";
@@ -3725,6 +3756,8 @@
       if (state.trainConfig.lr_warmup_steps != null && state.trainConfig.lr_warmup_steps !== "") {
         overrides.lr_warmup_steps = Number(state.trainConfig.lr_warmup_steps);
       }
+      if (state.trainConfig.lora_rank != null) overrides.lora_rank = state.trainConfig.lora_rank;
+      if (state.trainConfig.lora_alpha != null) overrides.lora_alpha = state.trainConfig.lora_alpha;
 
       // Prepare dataset first
       state.trainView = "preparing";

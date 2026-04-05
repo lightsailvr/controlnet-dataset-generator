@@ -2,7 +2,7 @@
 
 This replaces the old SimpleTuner config.json / accelerate_config.yaml
 generation. All configuration is now passed as CLI arguments to the
-diffusers train_controlnet_flux.py script.
+diffusers train_lora_flux.py script (this repo trains LoRA; SimpleTuner remains optional).
 """
 
 import os
@@ -22,7 +22,7 @@ def build_launch_args(preset, overrides, jsonl_path, output_dir):
         List of command strings ready for subprocess.Popen
     """
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    training_script = os.path.join(script_dir, "train_controlnet_flux.py")
+    training_script = os.path.join(script_dir, "train_lora_flux.py")
 
     def _get(key, default=None):
         return overrides.get(key, preset.get(key, default))

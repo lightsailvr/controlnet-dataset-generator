@@ -8,3 +8,4 @@ safetensors
 datasets
 sentencepiece
 protobuf
+tensorboard
