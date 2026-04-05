@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require("electron");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 
@@ -231,6 +231,38 @@ ipcMain.handle("check-dependencies", async () => {
   }
 
   return { ok: false, error: "unknown", pythonPath };
+});
+
+ipcMain.handle("check-depth-backend", async () => {
+  const pythonPath = findPython();
+  if (!pythonPath) {
+    return { ok: false, error: "Python 3 not found" };
+  }
+  const probePath = path.join(__dirname, "..", "python", "depth_backend_probe.py");
+  if (!fs.existsSync(probePath)) {
+    return { ok: false, error: "depth_backend_probe.py missing" };
+  }
+  const repoRoot = path.join(__dirname, "..");
+  const r = spawnSync(pythonPath, [probePath], {
+    encoding: "utf-8",
+    timeout: 120000,
+    cwd: repoRoot,
+  });
+  if (r.error) {
+    return { ok: false, error: r.error.message };
+  }
+  if (r.status !== 0) {
+    return {
+      ok: false,
+      error: (r.stderr || r.stdout || `exit ${r.status}`).trim(),
+    };
+  }
+  try {
+    const data = JSON.parse((r.stdout || "").trim());
+    return { ok: true, ...data };
+  } catch (e) {
+    return { ok: false, error: e.message || "invalid JSON from probe" };
+  }
 });
 
 ipcMain.handle("start-processing", async (event, { files, config, outputDir }) => {
@@ -796,7 +828,7 @@ ipcMain.handle("install-training-deps", async () => {
 
   // Determine which requirements file to use
   const isMac = process.platform === "darwin";
-  const reqFile = isMac ? "requirements_mac.txt" : "requirements_nvidia.txt";
+  const reqFile = isMac ? "requirements.txt" : "requirements_nvidia.txt";
   const reqPath = path.join(__dirname, "..", "train", reqFile);
 
   if (!fs.existsSync(reqPath)) {

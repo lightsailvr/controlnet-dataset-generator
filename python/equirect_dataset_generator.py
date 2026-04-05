@@ -5,7 +5,7 @@ Stereoscopic 180 SBS LoRA dataset builder.
 Extracts frames from VR180 / 180° SBS (or mono 180/360 equirect) media and writes:
   - frames/<id>.png   — training image (2:1 aspect for SBS)
   - frames/<id>.txt   — caption sidecar
-  - depth/<id>.png    — optional disparity map from stereo halves
+  - depth/<id>.png    — optional disparity (FoundationStereo on CUDA PC, or OpenCV SGBM fallback)
   - dataset_manifest.json
 
 CLI:
@@ -36,6 +36,9 @@ try:
 except ImportError:
     depth_from_sbs_bgr = None  # optional if extractDepth false
 
+# One UserWarning per process when auto falls back to SGBM
+_AUTO_DEPTH_WARNED = [False]
+
 # ── formats (same as before) ──
 
 VIDEO_EXTS = {
@@ -56,7 +59,28 @@ DEFAULTS = {
     "seed": 42,
     "captionPrefix": "stereo180sbs, stereoscopic 180 VR side by side half equirectangular",
     "extractDepth": True,
+    # Depth: auto | foundation_stereo | sgbm (see depth_extractor.py)
+    "depthBackend": "auto",
+    "foundationStereoRoot": "",
+    "foundationStereoCkpt": "",
+    "foundationStereoScale": 1.0,
+    "foundationStereoHiera": 0,
+    "foundationStereoValidIters": 32,
 }
+
+
+def _depth_kwargs_from_config(cfg: dict) -> dict:
+    root = (cfg.get("foundationStereoRoot") or "").strip()
+    ckpt = (cfg.get("foundationStereoCkpt") or "").strip()
+    return {
+        "backend": (cfg.get("depthBackend") or "auto").strip().lower(),
+        "fs_root": root or None,
+        "fs_ckpt": ckpt or None,
+        "fs_scale": float(cfg.get("foundationStereoScale", 1.0)),
+        "fs_hiera": int(cfg.get("foundationStereoHiera", 0)),
+        "fs_valid_iters": int(cfg.get("foundationStereoValidIters", 32)),
+        "_auto_warned": _AUTO_DEPTH_WARNED,
+    }
 
 
 def log(msg: str) -> None:
@@ -205,7 +229,8 @@ def process_files(file_paths: list[str], config: dict, output_dir: str) -> None:
     log(f"  Source type:  {source_type}")
     log(f"  Frame step:   every {frame_interval} frames (video)")
     log(f"  Output size:  {training_res * 2}x{training_res} (2:1)")
-    log(f"  Depth maps:   {'on' if extract_depth else 'off'}")
+    depth_be = (config.get("depthBackend") or "auto").strip().lower() if extract_depth else "off"
+    log(f"  Depth maps:   {'on' if extract_depth else 'off'}{' (' + depth_be + ')' if extract_depth else ''}")
     log(f"  Output:       {output_dir}")
     log(f"{'=' * 60}\n")
 
@@ -343,7 +368,8 @@ def _write_sample(
     if extract_depth and source_type == "180sbs":
         bgr_full = cv2.cvtColor(out_rgb, cv2.COLOR_RGB2BGR)
         try:
-            d = depth_from_sbs_bgr(bgr_full)
+            dk = _depth_kwargs_from_config(config)
+            d = depth_from_sbs_bgr(bgr_full, **dk)
             depth_rel = f"depth/{frame_id}.png"
             cv2.imwrite(str(depth_dir / f"{frame_id}.png"), d)
         except Exception as e:
@@ -381,6 +407,17 @@ def main() -> None:
     parser.add_argument("-r", "--training-res", type=int, default=512)
     parser.add_argument("--caption-prefix", type=str, default=None)
     parser.add_argument("--no-depth", action="store_true", help="Skip disparity extraction")
+    parser.add_argument(
+        "--depth-backend",
+        choices=["auto", "foundation_stereo", "sgbm"],
+        default=None,
+        help="Disparity backend: FoundationStereo (CUDA PC), OpenCV SGBM, or auto-detect",
+    )
+    parser.add_argument("--foundation-stereo-root", type=str, default=None, help="Path to NVlabs/FoundationStereo clone")
+    parser.add_argument("--foundation-stereo-ckpt", type=str, default=None, help="Path to model_best_bp2.pth")
+    parser.add_argument("--foundation-stereo-scale", type=float, default=None, help="Resize factor (0,1], default 1")
+    parser.add_argument("--foundation-stereo-hiera", type=int, choices=[0, 1], default=None, help="1 = hierarchical for >~1K px")
+    parser.add_argument("--foundation-stereo-iters", type=int, default=None, help="FoundationStereo valid_iters (default 32)")
     parser.add_argument("--job-file", type=str, default=None)
 
     args = parser.parse_args()
@@ -392,6 +429,18 @@ def main() -> None:
         out = job.get("outputDir", "./dataset")
         if args.caption_prefix:
             cfg["captionPrefix"] = args.caption_prefix
+        if args.depth_backend is not None:
+            cfg["depthBackend"] = args.depth_backend
+        if args.foundation_stereo_root is not None:
+            cfg["foundationStereoRoot"] = args.foundation_stereo_root
+        if args.foundation_stereo_ckpt is not None:
+            cfg["foundationStereoCkpt"] = args.foundation_stereo_ckpt
+        if args.foundation_stereo_scale is not None:
+            cfg["foundationStereoScale"] = args.foundation_stereo_scale
+        if args.foundation_stereo_hiera is not None:
+            cfg["foundationStereoHiera"] = args.foundation_stereo_hiera
+        if args.foundation_stereo_iters is not None:
+            cfg["foundationStereoValidIters"] = args.foundation_stereo_iters
         process_files(paths, cfg, out)
         return
 
@@ -406,6 +455,7 @@ def main() -> None:
         sys.exit(1)
 
     cfg = {
+        **DEFAULTS,
         "sourceType": args.source_type,
         "frameInterval": args.frame_interval,
         "trainingRes": args.training_res,
@@ -413,6 +463,18 @@ def main() -> None:
         "extractDepth": not args.no_depth,
         "seed": DEFAULTS["seed"],
     }
+    if args.depth_backend is not None:
+        cfg["depthBackend"] = args.depth_backend
+    if args.foundation_stereo_root is not None:
+        cfg["foundationStereoRoot"] = args.foundation_stereo_root
+    if args.foundation_stereo_ckpt is not None:
+        cfg["foundationStereoCkpt"] = args.foundation_stereo_ckpt
+    if args.foundation_stereo_scale is not None:
+        cfg["foundationStereoScale"] = args.foundation_stereo_scale
+    if args.foundation_stereo_hiera is not None:
+        cfg["foundationStereoHiera"] = args.foundation_stereo_hiera
+    if args.foundation_stereo_iters is not None:
+        cfg["foundationStereoValidIters"] = args.foundation_stereo_iters
     process_files(paths, cfg, args.output)
 
 

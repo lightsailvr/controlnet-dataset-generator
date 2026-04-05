@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("api", {
   selectFolder: () => ipcRenderer.invoke("select-folder"),
   selectOutputDir: () => ipcRenderer.invoke("select-output-dir"),
   checkDependencies: () => ipcRenderer.invoke("check-dependencies"),
+  checkDepthBackend: () => ipcRenderer.invoke("check-depth-backend"),
   startProcessing: (payload) => ipcRenderer.invoke("start-processing", payload),
   cancelProcessing: () => ipcRenderer.invoke("cancel-processing"),
   openFolder: (path) => ipcRenderer.invoke("open-folder", path),

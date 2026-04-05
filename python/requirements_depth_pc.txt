@@ -1,0 +1,31 @@
+# PC-only: NVIDIA CUDA environment for FoundationStereo depth extraction.
+# Prefer the official conda stack (see scripts/setup_depth_env.sh). This file is a
+# pip-oriented reference for the same dependency set as NVlabs/FoundationStereo.
+
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
+scikit-image
+omegaconf
+opencv-contrib-python
+imgaug
+ninja
+timm
+albumentations
+scipy
+joblib
+scikit-learn
+ruamel.yaml
+trimesh
+pyyaml
+imageio
+open3d
+transformations
+einops
+gdown
+xformers==0.0.28.post1
+huggingface-hub
+jupyterlab
+
+# Install after the above (CUDA build required):
+#   pip install flash-attn --no-build-isolation

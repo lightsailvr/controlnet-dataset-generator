@@ -1118,7 +1118,15 @@
         seed: 42,
         captionPrefix: "stereo180sbs, stereoscopic 180 VR side by side half equirectangular",
         extractDepth: true,
+        depthBackend: "auto",
+        foundationStereoRoot: "",
+        foundationStereoCkpt: "",
+        foundationStereoScale: 1,
+        foundationStereoHiera: 0,
+        foundationStereoValidIters: 32,
       },
+      depthBackendProbe: null,
+      depthProbeRequested: false,
       outputDir: null,
       depStatus: "checking",   // checking | ok | error
       depError: null,
@@ -1288,6 +1296,16 @@
     }
 
     function renderSetup(container) {
+      if (!state.depthProbeRequested) {
+        state.depthProbeRequested = true;
+        if (window.api.checkDepthBackend) {
+          window.api.checkDepthBackend().then((info) => {
+            state.depthBackendProbe = info;
+            if (state.view === "setup") render();
+          });
+        }
+      }
+
       // Dependency check
       const depClass = state.depStatus === "ok" ? "ok" : state.depStatus === "error" ? "error" : "";
       const depCheck = h("div", { className: `dep-check ${depClass}` });
@@ -1471,6 +1489,52 @@
         onClick: () => { state.config.extractDepth = false; render(); },
       }, "Off"));
       depthGroup.appendChild(depthRow);
+
+      if (state.config.extractDepth) {
+        depthGroup.appendChild(h("div", { className: "label-hint", style: { marginTop: "8px" } },
+          "Applies to 180° SBS. Best depth: FoundationStereo on an NVIDIA PC; copy dataset to Mac for training."));
+        depthGroup.appendChild(h("label", { style: { marginTop: "10px", display: "block" } }, "Depth engine"));
+        const beRow = h("div", { className: "radio-group" });
+        [["auto", "Auto"], ["foundation_stereo", "FoundationStereo (CUDA)"], ["sgbm", "OpenCV SGBM"]].forEach(([val, label]) => {
+          beRow.appendChild(h("button", {
+            className: `radio-btn ${state.config.depthBackend === val ? "active" : ""}`,
+            onClick: () => { state.config.depthBackend = val; render(); },
+          }, label));
+        });
+        depthGroup.appendChild(beRow);
+
+        const probe = state.depthBackendProbe;
+        if (state.config.depthBackend === "foundation_stereo" && probe && probe.ok === false) {
+          depthGroup.appendChild(h("div", { className: "dep-details", style: { marginTop: "6px" } },
+            "Depth probe failed: " + (probe.error || "unknown")));
+        }
+        if (state.config.depthBackend === "foundation_stereo" && probe && probe.ok && !probe.foundation_stereo_ready) {
+          depthGroup.appendChild(h("div", { className: "dep-details", style: { marginTop: "6px" } },
+            "FoundationStereo not ready here (CUDA + repo + weights). Use a prep PC or Auto/SGBM for local previews."));
+        }
+
+        depthGroup.appendChild(h("div", { className: "label-hint", style: { marginTop: "8px" } },
+          "Optional paths (or set FOUNDATION_STEREO_ROOT on the prep machine):"));
+        const rootInp = h("input", {
+          className: "num-input",
+          type: "text",
+          placeholder: "Path to FoundationStereo clone",
+          style: { width: "100%", maxWidth: "none", marginTop: "4px", fontFamily: "inherit" },
+          value: state.config.foundationStereoRoot || "",
+        });
+        rootInp.addEventListener("input", (e) => { state.config.foundationStereoRoot = e.target.value; });
+        depthGroup.appendChild(rootInp);
+        const ckInp = h("input", {
+          className: "num-input",
+          type: "text",
+          placeholder: "Checkpoint model_best_bp2.pth (optional)",
+          style: { width: "100%", maxWidth: "none", marginTop: "4px", fontFamily: "inherit" },
+          value: state.config.foundationStereoCkpt || "",
+        });
+        ckInp.addEventListener("input", (e) => { state.config.foundationStereoCkpt = e.target.value; });
+        depthGroup.appendChild(ckInp);
+      }
+
       grid.appendChild(depthGroup);
 
       // Seed
@@ -1635,7 +1699,7 @@
       tree.appendChild(h("pre", { className: "tree" },
 `${state.outputDir || "dataset"}/
 ├── frames/             (${r.total_frames || r.total_samples || "?"} PNG + .txt captions)
-├── depth/              (optional disparity maps, 180 SBS)
+├── depth/              (optional disparity; FoundationStereo on PC or SGBM)
 ├── source_equirects/   (extracted video frames)
 ├── dataset_manifest.json
 └── pairs.json          (legacy summary)`
