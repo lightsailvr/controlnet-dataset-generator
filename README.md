@@ -22,14 +22,14 @@ Built by Light Sail VR.
 
 | Step | Where | What |
 |------|--------|------|
-| **Dataset + depth** | **PC with NVIDIA GPU** (Windows / Linux / WSL2) | Run the Electron app or CLI with **FoundationStereo** for high-quality stereo disparity (`depth/`). See [FoundationStereo depth (PC)](#foundationstereo-depth-pc) and [Windows PC](#windows-pc-install-and-run) below. |
+| **Dataset + depth** | **PC with NVIDIA GPU** (Windows / Linux / WSL2) | Run the Electron app or CLI with **FoundationStereo** for high-quality stereo disparity (`depth/`). See [Windows PC guide](#windows-pc-full-setup-guide) or [FoundationStereo depth (PC)](#foundationstereo-depth-pc) below. |
 | **Training** | **Mac Studio (or any machine)** | Copy the finished `dataset/` folder. Install training deps and run `train/prepare_dataset.py` + `train/train_lora.py` (PyTorch **MPS** on Apple Silicon is supported). |
 
 Depth extraction uses **CUDA** and the official **NVlabs/FoundationStereo** stack; LoRA training only needs the exported PNGs + JSONL and does **not** require FoundationStereo at train time.
 
 ---
 
-## Prerequisites
+## Prerequisites (macOS / Linux)
 
 ### Node.js (Electron)
 
@@ -84,60 +84,305 @@ Reference pip pins (conda is preferred): [`python/requirements_depth_pc.txt`](py
 
 ---
 
-## Windows PC: install and run
+## Windows PC: full setup guide
 
-These steps assume **Windows 10 or 11** (64-bit). Use an **NVIDIA GPU** if you want **FoundationStereo** depth; the app still runs on CPU-only machines using **OpenCV SGBM** or depth off.
+This is the complete step-by-step process for building datasets **with FoundationStereo depth** on a Windows PC, then optionally training on the same machine or copying the dataset to a Mac.
 
-### 1. Install system tools
+**Requirements:** Windows 10 (build 19041+) or Windows 11, an NVIDIA GPU (RTX 3090 / 4090 / A100 recommended; 8 GB VRAM minimum), and an internet connection.
 
-- **Node.js (LTS):** [https://nodejs.org](https://nodejs.org) — installer includes `npm`. Confirm in **Command Prompt** or **PowerShell**: `node -v` and `npm -v`.
-- **Python 3.10+ (64-bit):** [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/) — in the installer, enable **“Add python.exe to PATH”**. Confirm: `python --version` (or `py --version`).
-- **Git:** [https://git-scm.com/download/win](https://git-scm.com/download/win) — needed to clone this repo (and optional FoundationStereo).
-- **ffmpeg** (required for video extraction): e.g. [https://www.gyan.dev/ffmpeg/builds/](https://www.gyan.dev/ffmpeg/builds/) (“ffmpeg-release-essentials.zip”), unpack, and add the `bin` folder to your user **PATH**. Or with **winget**: `winget install --id Gyan.FFmpeg`. Confirm: `ffmpeg -version`.
+---
 
-### 2. Clone and start the Electron app
+### Part A — Electron app (runs natively on Windows)
 
-In **Command Prompt** or **PowerShell** (replace the path if you use another folder):
+These tools let you run the desktop UI and generate datasets. Without FoundationStereo (Part B), depth maps will use OpenCV SGBM (low quality preview) or be off.
+
+#### A1. Install Node.js
+
+Download the **LTS** installer from [https://nodejs.org](https://nodejs.org). Run it with defaults (includes `npm`). Open a **new** Command Prompt or PowerShell and verify:
+
+```bat
+node -v
+npm -v
+```
+
+#### A2. Install Python 3.10+
+
+Download from [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/). **Important:** check **"Add python.exe to PATH"** in the installer. Verify in a new terminal:
+
+```bat
+python --version
+```
+
+If `python` opens the Microsoft Store instead, go to Settings → Apps → Advanced app settings → App execution aliases and turn **off** the aliases for `python.exe` and `python3.exe`.
+
+#### A3. Install Git
+
+Download from [https://git-scm.com/download/win](https://git-scm.com/download/win) and install with defaults. Verify:
+
+```bat
+git --version
+```
+
+#### A4. Install ffmpeg (needed for video input)
+
+Easiest with winget:
+
+```bat
+winget install --id Gyan.FFmpeg
+```
+
+Or manually: download "ffmpeg-release-essentials.zip" from [https://www.gyan.dev/ffmpeg/builds/](https://www.gyan.dev/ffmpeg/builds/), extract it, and add the `bin` folder inside it to your system `PATH`. Verify in a **new** terminal:
+
+```bat
+ffmpeg -version
+```
+
+#### A5. Clone repo, install deps, start app
 
 ```bat
 cd %USERPROFILE%\Projects
 git clone https://github.com/lightsailvr/controlnet-dataset-generator.git
 cd controlnet-dataset-generator
+
+python -m pip install --upgrade pip
+python -m pip install opencv-python-headless numpy Pillow
+
 npm install
 npm start
 ```
 
-The dataset builder calls **`python`** (and tries **`python3`** first on some setups). If the app says Python is missing, install Python as above or use **“Python Launcher”** so `python` works in a new terminal.
+The Electron app should launch. You can select media, configure the dataset, and build. At this point depth will use **OpenCV SGBM** (low quality) or be off. Part B adds FoundationStereo for production-quality depth maps.
 
-### 3. Python packages for dataset generation
+---
 
-From the repo root:
+### Part B — FoundationStereo depth via WSL2 (NVIDIA GPU required)
 
-```bat
-python -m pip install --upgrade pip
-python -m pip install opencv-python-headless numpy Pillow
+FoundationStereo requires **Linux + CUDA + flash-attn + xformers**. The cleanest path on Windows is **WSL2** with Ubuntu. You will run the dataset builder CLI inside WSL, writing output to a shared path that Windows and the Electron app can read.
+
+#### B1. Enable WSL2 and install Ubuntu
+
+Open **PowerShell as Administrator**:
+
+```powershell
+wsl --update
+wsl --set-default-version 2
+wsl --install -d Ubuntu-24.04
 ```
 
-If you use a **virtual environment** for a clean install, create it in the repo root and **activate it in the same terminal** before `npm start` so child processes inherit `PATH` and pick up that `python`:
+Restart your PC if prompted. After reboot, Ubuntu will launch and ask you to create a username and password. Then inside the Ubuntu terminal:
 
-```bat
-python -m venv .venv
-.venv\Scripts\activate
-python -m pip install opencv-python-headless numpy Pillow
-npm start
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y build-essential git wget curl
 ```
 
-### 4. FoundationStereo on Windows (depth quality)
+#### B2. Install NVIDIA CUDA toolkit inside WSL2
 
-[FoundationStereo](https://nvlabs.github.io/FoundationStereo/) is tested on **Linux + NVIDIA CUDA**; building **flash-attn** and PyTorch CUDA stacks on **native Windows** is often painful.
+Your **Windows** NVIDIA driver already exposes the GPU to WSL2 — you do **not** install a Linux GPU driver. You only need the CUDA **toolkit** inside Ubuntu.
 
-**Recommended:** use **WSL2** (Ubuntu) with an NVIDIA driver on Windows, install CUDA inside WSL per NVIDIA’s docs, then run **`scripts/setup_depth_env.sh`** and the **CLI** dataset builder inside WSL, writing datasets to a path Windows can read (e.g. under `/mnt/c/...`).
+First, make sure your Windows NVIDIA driver is up to date: use GeForce Experience, the NVIDIA App, or download from [nvidia.com/drivers](https://www.nvidia.com/drivers).
 
-**Alternative:** install **Miniconda** on Windows and follow the [official FoundationStereo `readme`](https://github.com/NVlabs/FoundationStereo/blob/master/readme.md) (`environment.yml`, then `pip install flash-attn`). Set a user environment variable **`FOUNDATION_STEREO_ROOT`** to your clone path (e.g. `C:\Users\you\FoundationStereo`).
+Then inside the Ubuntu terminal:
 
-### 5. Training on Windows (optional)
+```bash
+# Remove any stale GPG key
+sudo apt-key del 7fa2af80 2>/dev/null || true
 
-You can train on the same PC if you have a suitable GPU and CUDA PyTorch:
+# Add NVIDIA's WSL-Ubuntu CUDA repository (version 12.8 — check nvidia.com for latest)
+wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
+sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
+
+wget https://developer.download.nvidia.com/compute/cuda/12.8.1/local_installers/cuda-repo-wsl-ubuntu-12-8-local_12.8.1-1_amd64.deb
+sudo dpkg -i cuda-repo-wsl-ubuntu-12-8-local_12.8.1-1_amd64.deb
+sudo cp /var/cuda-repo-wsl-ubuntu-12-8-local/cuda-*-keyring.gpg /usr/share/keyrings/
+
+sudo apt-get update
+sudo apt-get -y install cuda-toolkit-12-8
+```
+
+Add CUDA to your shell path — append these to `~/.bashrc`:
+
+```bash
+echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Verify everything works:
+
+```bash
+nvidia-smi          # should show your Windows GPU and driver version
+nvcc --version      # should show CUDA 12.8.x
+```
+
+If `nvidia-smi` fails, your Windows NVIDIA driver may be too old — update it on the Windows side and restart WSL (`wsl --shutdown` in PowerShell, then reopen Ubuntu).
+
+#### B3. Install Miniconda inside WSL2
+
+FoundationStereo uses a conda environment. Inside the Ubuntu terminal:
+
+```bash
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+```
+
+Accept defaults and say **yes** to initialize conda. Then restart the terminal or run:
+
+```bash
+source ~/.bashrc
+conda --version     # should print conda 24.x or later
+```
+
+#### B4. Clone this repo inside WSL2
+
+You have two path strategies:
+
+| Strategy | Path | Pros | Cons |
+|----------|------|------|------|
+| **Shared Windows drive** | `/mnt/c/Users/<you>/Projects/` | Windows Electron app + WSL CLI share the same folder; no copy step | Slower filesystem I/O |
+| **WSL-native home** | `~/` | Fastest I/O for FoundationStereo processing | Must copy the finished dataset out to Windows or Mac |
+
+**Shared (recommended for simplicity):**
+
+```bash
+cd /mnt/c/Users/$USER/Projects
+git clone https://github.com/lightsailvr/controlnet-dataset-generator.git
+cd controlnet-dataset-generator
+```
+
+**WSL-native (recommended for speed):**
+
+```bash
+cd ~
+git clone https://github.com/lightsailvr/controlnet-dataset-generator.git
+cd controlnet-dataset-generator
+```
+
+#### B5. Run the FoundationStereo setup script
+
+This clones FoundationStereo into `third_party/FoundationStereo`, creates the `foundation_stereo` conda environment, and installs all dependencies including **flash-attn** (compiles from source with CUDA — takes 5–15 minutes):
+
+```bash
+bash scripts/setup_depth_env.sh
+```
+
+If `flash-attn` fails to build:
+- Confirm `nvcc --version` works.
+- Confirm your NVIDIA driver version is compatible with CUDA 12.8 (`nvidia-smi` shows "CUDA Version: 12.x" in the top-right).
+- See [FoundationStereo issue #20](https://github.com/NVlabs/FoundationStereo/issues/20) for known fixes.
+
+#### B6. Download pretrained weights
+
+The weights are on Google Drive:
+**[https://drive.google.com/drive/folders/1VhPebc_mMxWKccrv7pdQLTvXYVcLYpsf](https://drive.google.com/drive/folders/1VhPebc_mMxWKccrv7pdQLTvXYVcLYpsf)**
+
+Download the **`23-51-11`** folder (ViT-Large, best quality). It must contain exactly two files:
+- `cfg.yaml` — model configuration
+- `model_best_bp2.pth` — weights (~1.3 GB)
+
+**Option 1 — browser download (easiest):**
+
+1. Open the Google Drive link on your Windows browser.
+2. Enter the **`23-51-11`** folder. Download `cfg.yaml` and `model_best_bp2.pth` individually (downloading the whole folder sometimes produces a broken zip — see [issue #89](https://github.com/NVlabs/FoundationStereo/issues/89)).
+3. Copy them into the WSL path:
+
+```bash
+mkdir -p third_party/FoundationStereo/pretrained_models/23-51-11
+cp /mnt/c/Users/$USER/Downloads/cfg.yaml third_party/FoundationStereo/pretrained_models/23-51-11/
+cp /mnt/c/Users/$USER/Downloads/model_best_bp2.pth third_party/FoundationStereo/pretrained_models/23-51-11/
+```
+
+**Option 2 — gdown (command line):**
+
+```bash
+conda activate foundation_stereo
+pip install gdown
+gdown --folder https://drive.google.com/drive/folders/1VhPebc_mMxWKccrv7pdQLTvXYVcLYpsf -O third_party/FoundationStereo/pretrained_models/
+```
+
+**Alternate mirror** if Google Drive quota is exceeded:
+[https://huggingface.co/datasets/steve-redefine/FoundationStereoWeights](https://huggingface.co/datasets/steve-redefine/FoundationStereoWeights)
+
+Verify the files are in place:
+
+```bash
+ls -lh third_party/FoundationStereo/pretrained_models/23-51-11/
+# Expected:
+#   cfg.yaml            (~1 KB)
+#   model_best_bp2.pth  (~1.3 GB)
+```
+
+#### B7. Sanity check — run FoundationStereo demo
+
+```bash
+conda activate foundation_stereo
+cd third_party/FoundationStereo
+
+python scripts/run_demo.py \
+  --ckpt_dir ./pretrained_models/23-51-11/model_best_bp2.pth \
+  --out_dir ./test_outputs/
+
+cd -   # back to repo root
+```
+
+You should see `Output saved to ./test_outputs/` and find `test_outputs/vis.png` containing a left-image + turbo-colored disparity side-by-side. If this works, FoundationStereo is ready.
+
+#### B8. Build a dataset with FoundationStereo depth
+
+From the repo root inside WSL:
+
+```bash
+conda activate foundation_stereo
+export FOUNDATION_STEREO_ROOT="$(pwd)/third_party/FoundationStereo"
+
+# Point at your media. If it's on your Windows C: drive:
+python python/equirect_dataset_generator.py \
+  "/mnt/c/Users/$USER/Media/my_vr_footage.mov" \
+  -o ./my_dataset \
+  -t 180sbs \
+  -r 512 \
+  --depth-backend foundation_stereo
+```
+
+Useful flags:
+- `--foundation-stereo-hiera 1` — hierarchical mode for high-res input (>1024 px per eye). Better quality, slower.
+- `--foundation-stereo-scale 0.5` — process at half resolution for speed. Slight quality loss.
+- `--foundation-stereo-iters 16` — fewer refinement passes (default 32). Faster, slightly lower accuracy.
+
+The output folder (`my_dataset/`) now contains:
+- `frames/` — training PNGs + `.txt` caption sidecars
+- `depth/` — high-quality FoundationStereo disparity maps
+- `dataset_manifest.json` — master manifest
+
+#### B9. Get the dataset to the Electron app or Mac for training
+
+**If you used the shared `/mnt/c/...` path:**
+The dataset is already on your Windows drive. In the Electron app on Windows, click **"Review Existing Dataset"** and browse to `C:\Users\<you>\Projects\controlnet-dataset-generator\my_dataset`.
+
+**If you used the WSL-native `~/` path:**
+Copy the dataset to your Windows drive:
+
+```bash
+cp -r ~/controlnet-dataset-generator/my_dataset /mnt/c/Users/$USER/Desktop/my_dataset
+```
+
+**To transfer to a Mac for training:**
+Copy the dataset folder to your Mac via network share, USB drive, AirDrop, or cloud storage. You only need these from the dataset:
+- `frames/` — the training images + `.txt` captions
+- `depth/` — the disparity maps
+- `dataset_manifest.json`
+
+You can skip `source_equirects/` (raw extracted frames) to save transfer time.
+
+---
+
+### Part C — Training on Windows (optional)
+
+You can train on the same Windows PC if you have a CUDA GPU. Training runs natively on Windows (no WSL needed).
+
+#### C1. Create a training venv
+
+In **Command Prompt** or **PowerShell**, from the repo root:
 
 ```bat
 python -m venv .venv
@@ -146,27 +391,28 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 pip install -r train\requirements_nvidia.txt
 ```
 
-Then use the **Train LoRA** flow in the app or the CLI (use `python` instead of `python3`):
+#### C2. Enable symlinks
+
+`train/prepare_dataset.py` creates symbolic links under `train_ready/`. On Windows you must enable one of:
+
+- **Developer Mode** (recommended): Settings → System → For developers → Developer Mode → **On**.
+- **Or** run your terminal as **Administrator**.
+
+Without this, symlink creation will fail and training will not find images.
+
+#### C3. Prepare and train
 
 ```bat
-python train\prepare_dataset.py C:\path\to\dataset
+python train\prepare_dataset.py C:\Users\you\Desktop\my_dataset
 python train\train_lora.py --detect-hardware
-python train\train_lora.py --dataset C:\path\to\dataset --preset …   # see train/configs/presets.py
+python train\train_lora.py --dataset C:\Users\you\Desktop\my_dataset --preset …
 ```
 
-**Symlinks:** `train/prepare_dataset.py` creates **symbolic links** under `train_ready/`. On Windows, enable **Developer Mode** (Settings → Privacy & security → For developers → Developer Mode) or run the terminal as Administrator so symlink creation succeeds. If that is not an option, prepare the dataset on **macOS/Linux/WSL** and copy `train_ready/` over.
-
-### 6. CLI examples (Windows paths)
-
-```bat
-python python\equirect_dataset_generator.py C:\media\clip.mov -o C:\data\my_dataset -t 180sbs -r 512
-set FOUNDATION_STEREO_ROOT=C:\path\to\FoundationStereo
-python python\equirect_dataset_generator.py C:\media\clip.mov -o C:\data\my_dataset -t 180sbs --depth-backend foundation_stereo
-```
+Check `train/configs/presets.py` for available presets, or use the **Train LoRA** button in the Electron app.
 
 ---
 
-## Installation
+## Quick start (macOS / Linux)
 
 ```bash
 cd controlnet-dataset-generator
