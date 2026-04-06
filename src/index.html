@@ -1300,6 +1300,12 @@
         state.depthProbeRequested = true;
         if (window.api.checkDepthBackend) {
           window.api.checkDepthBackend().then((info) => {
+            if (info && info._debug) {
+              console.group("[depth-probe] debug from main process");
+              info._debug.forEach((line) => console.log(line));
+              console.groupEnd();
+              console.log("[depth-probe] full result:", JSON.stringify(info, null, 2));
+            }
             state.depthBackendProbe = info;
             if (state.view === "setup") render();
           });
