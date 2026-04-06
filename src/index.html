@@ -1504,35 +1504,58 @@
         depthGroup.appendChild(beRow);
 
         const probe = state.depthBackendProbe;
-        if (state.config.depthBackend === "foundation_stereo" && probe && probe.ok === false) {
+        const fsReady = probe && probe.foundation_stereo_ready === true;
+        const viaWsl = probe && probe.via_wsl === true;
+
+        if (fsReady && viaWsl) {
+          depthGroup.appendChild(h("div", {
+            className: "dep-details",
+            style: { marginTop: "6px", color: "var(--accent, #2dd4bf)", borderColor: "var(--accent-dim)" },
+          }, "FoundationStereo ready via WSL2 — dataset build will run conda env foundation_stereo in Ubuntu."));
+        }
+
+        if (probe && probe.wsl_env_hint) {
+          depthGroup.appendChild(h("div", { className: "dep-details", style: { marginTop: "6px" } }, probe.wsl_env_hint));
+        }
+        if (probe && probe.wsl_weights_hint && !fsReady) {
+          depthGroup.appendChild(h("div", { className: "dep-details", style: { marginTop: "6px" } }, probe.wsl_weights_hint));
+        }
+
+        if (state.config.depthBackend === "foundation_stereo" && probe && probe.ok === false && !fsReady) {
           depthGroup.appendChild(h("div", { className: "dep-details", style: { marginTop: "6px" } },
             "Depth probe failed: " + (probe.error || "unknown")));
         }
-        if (state.config.depthBackend === "foundation_stereo" && probe && probe.ok && !probe.foundation_stereo_ready) {
+        if (state.config.depthBackend === "foundation_stereo" && !fsReady && !probe?.wsl_env_hint && !probe?.wsl_weights_hint) {
           depthGroup.appendChild(h("div", { className: "dep-details", style: { marginTop: "6px" } },
-            "FoundationStereo not ready here (CUDA + repo + weights). Use a prep PC or Auto/SGBM for local previews."));
+            "FoundationStereo not ready (native CUDA + repo + weights, or WSL2 + conda env + weights). Use Auto/SGBM for preview, or finish WSL setup (see README)."));
         }
 
-        depthGroup.appendChild(h("div", { className: "label-hint", style: { marginTop: "8px" } },
-          "Optional paths (or set FOUNDATION_STEREO_ROOT on the prep machine):"));
-        const rootInp = h("input", {
-          className: "num-input",
-          type: "text",
-          placeholder: "Path to FoundationStereo clone",
-          style: { width: "100%", maxWidth: "none", marginTop: "4px", fontFamily: "inherit" },
-          value: state.config.foundationStereoRoot || "",
-        });
-        rootInp.addEventListener("input", (e) => { state.config.foundationStereoRoot = e.target.value; });
-        depthGroup.appendChild(rootInp);
-        const ckInp = h("input", {
-          className: "num-input",
-          type: "text",
-          placeholder: "Checkpoint model_best_bp2.pth (optional)",
-          style: { width: "100%", maxWidth: "none", marginTop: "4px", fontFamily: "inherit" },
-          value: state.config.foundationStereoCkpt || "",
-        });
-        ckInp.addEventListener("input", (e) => { state.config.foundationStereoCkpt = e.target.value; });
-        depthGroup.appendChild(ckInp);
+        const showFsPathOverrides = !(fsReady && viaWsl);
+        if (showFsPathOverrides) {
+          depthGroup.appendChild(h("div", { className: "label-hint", style: { marginTop: "8px" } },
+            "Optional paths (Windows). If empty, repo third_party/FoundationStereo is used when present; WSL2 uses the same path as /mnt/…/third_party/FoundationStereo."));
+          const rootInp = h("input", {
+            className: "num-input",
+            type: "text",
+            placeholder: "Path to FoundationStereo clone (optional)",
+            style: { width: "100%", maxWidth: "none", marginTop: "4px", fontFamily: "inherit" },
+            value: state.config.foundationStereoRoot || "",
+          });
+          rootInp.addEventListener("input", (e) => { state.config.foundationStereoRoot = e.target.value; });
+          depthGroup.appendChild(rootInp);
+          const ckInp = h("input", {
+            className: "num-input",
+            type: "text",
+            placeholder: "Checkpoint model_best_bp2.pth (optional)",
+            style: { width: "100%", maxWidth: "none", marginTop: "4px", fontFamily: "inherit" },
+            value: state.config.foundationStereoCkpt || "",
+          });
+          ckInp.addEventListener("input", (e) => { state.config.foundationStereoCkpt = e.target.value; });
+          depthGroup.appendChild(ckInp);
+        } else {
+          depthGroup.appendChild(h("div", { className: "label-hint", style: { marginTop: "8px" } },
+            "Install ffmpeg inside WSL for video: sudo apt install ffmpeg"));
+        }
       }
 
       grid.appendChild(depthGroup);

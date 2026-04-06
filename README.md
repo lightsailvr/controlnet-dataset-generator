@@ -327,6 +327,17 @@ cd -   # back to repo root
 
 You should see `Output saved to ./test_outputs/` and find `test_outputs/vis.png` containing a left-image + turbo-colored disparity side-by-side. If this works, FoundationStereo is ready.
 
+#### Electron app on Windows + WSL2 bridge
+
+After WSL2 is set up, you can use the **desktop GUI** on Windows for dataset builds with FoundationStereo — you do **not** have to use the CLI only.
+
+1. Keep the repo on a **Windows drive** (e.g. `D:\Training\controlnet-dataset-generator`) so the same tree is visible in WSL as `/mnt/d/Training/...`.
+2. Ensure **`third_party/FoundationStereo/pretrained_models/23-51-11/`** contains `cfg.yaml` and `model_best_bp2.pth` on that Windows path (same files you use in WSL).
+3. In **Ubuntu (WSL)**, install ffmpeg for video: `sudo apt install -y ffmpeg`.
+4. Start the app on Windows (`npm start`). When the depth panel shows **FoundationStereo ready via WSL2**, choose **FoundationStereo (CUDA)** or **Auto**, pick your media and output folder, and run **Build LoRA dataset**. The app runs `equirect_dataset_generator.py` inside `conda run -n foundation_stereo` via `wsl.exe`, with paths translated automatically.
+
+If conda is not on `PATH` for non-login shells, run `conda init bash` once inside WSL and reopen the terminal.
+
 #### B8. Build a dataset with FoundationStereo depth
 
 From the repo root inside WSL:

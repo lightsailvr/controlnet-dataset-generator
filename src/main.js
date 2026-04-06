@@ -165,6 +165,101 @@ ipcMain.handle("select-output-dir", async () => {
 
 let pythonProcess = null;
 
+/** Whether the current dataset job was started via WSL (for logging / future use). */
+let pythonProcessViaWSL = false;
+
+// ─── WSL2 bridge (Windows + FoundationStereo in Linux conda env) ───
+
+let _wslAvailableCache = null;
+function isWSLAvailable() {
+  if (_wslAvailableCache !== null) return _wslAvailableCache;
+  if (process.platform !== "win32") {
+    _wslAvailableCache = false;
+    return false;
+  }
+  try {
+    const r = spawnSync("wsl.exe", ["-l", "-q"], {
+      encoding: "utf-8",
+      timeout: 8000,
+      windowsHide: true,
+    });
+    _wslAvailableCache = r.status === 0 && Boolean((r.stdout || "").trim());
+  } catch {
+    _wslAvailableCache = false;
+  }
+  return _wslAvailableCache;
+}
+
+/** Convert Windows path to WSL /mnt/x/... */
+function winPathToWSL(winPath) {
+  if (!winPath || typeof winPath !== "string") return winPath;
+  const resolved = path.win32.resolve(winPath);
+  const m = /^([a-zA-Z]):[\\/]?(.*)$/i.exec(resolved);
+  if (!m) return winPath;
+  const letter = m[1].toLowerCase();
+  const rest = (m[2] || "").replace(/\\/g, "/").replace(/^\//, "");
+  return rest ? `/mnt/${letter}/${rest}` : `/mnt/${letter}`;
+}
+
+let _wslCondaEnvCache = null;
+/**
+ * Check whether `conda run -n foundation_stereo` works inside default WSL distro.
+ * Cached for the session.
+ */
+function wslFoundationStereoCondaOk() {
+  if (_wslCondaEnvCache !== null) return _wslCondaEnvCache;
+  if (process.platform !== "win32" || !isWSLAvailable()) {
+    _wslCondaEnvCache = { ok: false, reason: "wsl_unavailable" };
+    return _wslCondaEnvCache;
+  }
+  try {
+    const r = spawnSync(
+      "wsl.exe",
+      [
+        "bash",
+        "-lc",
+        'conda run --no-capture-output -n foundation_stereo python3 -c "import torch; print(torch.cuda.is_available())"',
+      ],
+      { encoding: "utf-8", timeout: 120000, windowsHide: true }
+    );
+    const out = ((r.stdout || "") + (r.stderr || "")).trim();
+    const cudaOk = out.includes("True");
+    _wslCondaEnvCache = {
+      ok: r.status === 0,
+      cuda: cudaOk,
+      reason: r.status === 0 ? null : out || `exit ${r.status}`,
+    };
+  } catch (e) {
+    _wslCondaEnvCache = { ok: false, reason: e.message || String(e) };
+  }
+  return _wslCondaEnvCache;
+}
+
+function depthBackendNeedsWSLFoundationStereo(depthBackend) {
+  const b = (depthBackend || "auto").toLowerCase();
+  return b === "foundation_stereo" || b === "auto";
+}
+
+function translateJobForWSL(job) {
+  const out = JSON.parse(JSON.stringify(job));
+  out.files = (out.files || []).map((f) => winPathToWSL(f));
+  out.outputDir = winPathToWSL(out.outputDir);
+  const cfg = out.config || {};
+  if (cfg.foundationStereoRoot && String(cfg.foundationStereoRoot).trim()) {
+    cfg.foundationStereoRoot = winPathToWSL(path.win32.resolve(cfg.foundationStereoRoot.trim()));
+  }
+  if (cfg.foundationStereoCkpt && String(cfg.foundationStereoCkpt).trim()) {
+    cfg.foundationStereoCkpt = winPathToWSL(path.win32.resolve(cfg.foundationStereoCkpt.trim()));
+  }
+  out.config = cfg;
+  return out;
+}
+
+/** Bash-safe single-quoted string (paths with apostrophes). */
+function bashSingleQuote(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
 function findPython() {
   const candidates = [
     "python3",
@@ -234,64 +329,164 @@ ipcMain.handle("check-dependencies", async () => {
 });
 
 ipcMain.handle("check-depth-backend", async () => {
-  const pythonPath = findPython();
-  if (!pythonPath) {
-    return { ok: false, error: "Python 3 not found" };
-  }
-  const probePath = path.join(__dirname, "..", "python", "depth_backend_probe.py");
+  const repoRoot = path.join(__dirname, "..");
+  const probePath = path.join(repoRoot, "python", "depth_backend_probe.py");
   if (!fs.existsSync(probePath)) {
     return { ok: false, error: "depth_backend_probe.py missing" };
   }
-  const repoRoot = path.join(__dirname, "..");
-  const r = spawnSync(pythonPath, [probePath], {
-    encoding: "utf-8",
-    timeout: 120000,
-    cwd: repoRoot,
-  });
-  if (r.error) {
-    return { ok: false, error: r.error.message };
+
+  const pythonPath = findPython();
+  let data = { ok: false, error: "Python 3 not found" };
+  if (pythonPath) {
+    const r = spawnSync(pythonPath, [probePath], {
+      encoding: "utf-8",
+      timeout: 120000,
+      cwd: repoRoot,
+    });
+    if (r.error) {
+      data = { ok: false, error: r.error.message };
+    } else if (r.status !== 0) {
+      data = {
+        ok: false,
+        error: (r.stderr || r.stdout || `exit ${r.status}`).trim(),
+      };
+    } else {
+      try {
+        data = { ok: true, ...JSON.parse((r.stdout || "").trim()) };
+      } catch (e) {
+        data = { ok: false, error: e.message || "invalid JSON from native probe" };
+      }
+    }
   }
-  if (r.status !== 0) {
-    return {
-      ok: false,
-      error: (r.stderr || r.stdout || `exit ${r.status}`).trim(),
+
+  const nativeFsReady = data.foundation_stereo_ready === true;
+
+  if (process.platform === "win32") {
+    const conda = wslFoundationStereoCondaOk();
+    const thirdParty = path.join(repoRoot, "third_party", "FoundationStereo");
+    const envPrefix = fs.existsSync(thirdParty)
+      ? `export FOUNDATION_STEREO_ROOT=${bashSingleQuote(winPathToWSL(thirdParty))} && `
+      : "";
+    const probeWsl = winPathToWSL(probePath);
+    const cmd = `${envPrefix}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(probeWsl)}`;
+    const wr = spawnSync("wsl.exe", ["bash", "-lc", cmd], {
+      encoding: "utf-8",
+      timeout: 120000,
+      windowsHide: true,
+    });
+    let wslProbe = null;
+    if (!wr.error && wr.status === 0) {
+      try {
+        wslProbe = JSON.parse((wr.stdout || "").trim());
+      } catch {
+        wslProbe = null;
+      }
+    }
+    const wslFsReady = Boolean(wslProbe && wslProbe.foundation_stereo_ready === true);
+    data = {
+      ...data,
+      native_foundation_stereo_ready: nativeFsReady,
+      native_cuda: data.cuda === true,
+      wsl_installed: isWSLAvailable(),
+      wsl_conda_ok: conda.ok,
+      wsl_conda_cuda: conda.cuda,
     };
+    if (wslProbe) {
+      data.wsl_cuda = wslProbe.cuda;
+      data.wsl_foundation_stereo_ready = wslFsReady;
+      data.wsl_foundation_stereo_root = wslProbe.foundation_stereo_root;
+    }
+    if (!nativeFsReady && wslFsReady) {
+      data.foundation_stereo_ready = true;
+      data.cuda = wslProbe.cuda;
+      data.via_wsl = true;
+      data.ok = true;
+    }
+    if (isWSLAvailable() && !conda.ok) {
+      data.wsl_env_hint =
+        "WSL2 is installed but the foundation_stereo conda env is not ready. Open Ubuntu (WSL) and run: bash scripts/setup_depth_env.sh";
+    }
+    if (isWSLAvailable() && conda.ok && !wslFsReady && !nativeFsReady) {
+      data.wsl_weights_hint =
+        "Conda env OK but weights or cfg.yaml not found. Download 23-51-11 into third_party/FoundationStereo/pretrained_models/ (see README).";
+    }
   }
-  try {
-    const data = JSON.parse((r.stdout || "").trim());
-    return { ok: true, ...data };
-  } catch (e) {
-    return { ok: false, error: e.message || "invalid JSON from probe" };
-  }
+
+  return data;
 });
 
 ipcMain.handle("start-processing", async (event, { files, config, outputDir }) => {
-  const pythonPath = findPython();
-  if (!pythonPath) {
-    return { ok: false, error: "Python 3 not found" };
+  const repoRoot = path.join(__dirname, "..");
+  const scriptPath = path.join(repoRoot, "python", "equirect_dataset_generator.py");
+
+  const fileList = files.map((f) => f.path);
+  const jobPayload = { files: fileList, config, outputDir };
+
+  const useWsl =
+    process.platform === "win32" &&
+    isWSLAvailable() &&
+    wslFoundationStereoCondaOk().ok &&
+    depthBackendNeedsWSLFoundationStereo(config.depthBackend);
+
+  const depthExplicit = (config.depthBackend || "").toLowerCase() === "foundation_stereo";
+  if (depthExplicit && !useWsl) {
+    const conda = wslFoundationStereoCondaOk();
+    if (!isWSLAvailable()) {
+      return {
+        ok: false,
+        error:
+          "FoundationStereo on Windows requires WSL2. Install Ubuntu from Microsoft Store, then run scripts/setup_depth_env.sh inside WSL.",
+      };
+    }
+    return {
+      ok: false,
+      error: conda.reason
+        ? `WSL foundation_stereo env not ready: ${conda.reason}`
+        : "WSL foundation_stereo conda env or CUDA not available. Run scripts/setup_depth_env.sh inside WSL (see README).",
+    };
   }
 
-  const scriptPath = path.join(__dirname, "..", "python", "equirect_dataset_generator.py");
+  let pythonPath = null;
+  if (!useWsl) {
+    pythonPath = findPython();
+    if (!pythonPath) {
+      return { ok: false, error: "Python 3 not found" };
+    }
+  }
 
-  // Process files sequentially
-  const fileList = files.map((f) => f.path);
-
-  // Write a temp job file so the Python script can read the full file list
   const jobFile = path.join(os.tmpdir(), `controlnet_job_${Date.now()}.json`);
-  fs.writeFileSync(
-    jobFile,
-    JSON.stringify({
-      files: fileList,
-      config: config,
-      outputDir: outputDir,
-    })
-  );
+  const jobToWrite = useWsl ? translateJobForWSL(jobPayload) : jobPayload;
+  fs.writeFileSync(jobFile, JSON.stringify(jobToWrite));
 
-  const args = [scriptPath, "--job-file", jobFile];
+  pythonProcessViaWSL = Boolean(useWsl);
 
-  pythonProcess = spawn(pythonPath, args, {
-    env: { ...process.env, PYTHONUNBUFFERED: "1" },
-  });
+  if (useWsl) {
+    const jobWsl = winPathToWSL(jobFile);
+    const scriptWsl = winPathToWSL(scriptPath);
+    const thirdParty = path.join(repoRoot, "third_party", "FoundationStereo");
+    const cfg = config || {};
+    let fsRootWsl = "";
+    if (cfg.foundationStereoRoot && String(cfg.foundationStereoRoot).trim()) {
+      fsRootWsl = winPathToWSL(path.win32.resolve(String(cfg.foundationStereoRoot).trim()));
+    } else if (fs.existsSync(thirdParty)) {
+      fsRootWsl = winPathToWSL(thirdParty);
+    }
+    const envExports = fsRootWsl
+      ? `export FOUNDATION_STEREO_ROOT=${bashSingleQuote(fsRootWsl)} && `
+      : "";
+    const cmd = `${envExports}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(
+      scriptWsl
+    )} --job-file ${bashSingleQuote(jobWsl)}`;
+    pythonProcess = spawn("wsl.exe", ["bash", "-lc", cmd], {
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+      windowsHide: true,
+    });
+  } else {
+    const args = [scriptPath, "--job-file", jobFile];
+    pythonProcess = spawn(pythonPath, args, {
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    });
+  }
 
   pythonProcess.stdout.on("data", (data) => {
     const lines = data.toString().split("\n").filter(Boolean);
@@ -327,6 +522,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
     // Clean up job file
     try { fs.unlinkSync(jobFile); } catch {}
     pythonProcess = null;
+    pythonProcessViaWSL = false;
   });
 
   return { ok: true };
@@ -334,8 +530,24 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
 
 ipcMain.handle("cancel-processing", async () => {
   if (pythonProcess) {
-    pythonProcess.kill("SIGTERM");
+    const proc = pythonProcess;
+    const viaWsl = pythonProcessViaWSL;
+    try {
+      proc.kill("SIGTERM");
+      if (process.platform === "win32" && viaWsl) {
+        setTimeout(() => {
+          try {
+            proc.kill("SIGKILL");
+          } catch {
+            /* ignore */
+          }
+        }, 3000);
+      }
+    } catch {
+      /* ignore */
+    }
     pythonProcess = null;
+    pythonProcessViaWSL = false;
     return { ok: true };
   }
   return { ok: false };
