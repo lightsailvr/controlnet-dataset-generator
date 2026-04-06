@@ -216,7 +216,13 @@ function wslFoundationStereoCondaOk() {
     _probeDebug.push(`[conda-probe] skip: ${JSON.stringify(_wslCondaEnvCache)}`);
     return _wslCondaEnvCache;
   }
-  const condaCmd = `${WSL_CONDA_INIT} conda run --no-capture-output -n foundation_stereo python3 -c "import torch; print(torch.cuda.is_available())"`;
+  const initSnippet = wslCondaInit();
+  _probeDebug.push(`[conda-probe] init snippet: ${initSnippet}`);
+  const debugEnv = spawnSync("wsl.exe", ["bash", "-lc",
+    'echo "HOME=$HOME"; ls -la "$HOME/miniconda3/etc/profile.d/conda.sh" 2>&1; echo "---"; head -5 "$HOME/.bashrc" 2>&1'
+  ], { encoding: "utf-8", timeout: 10000, windowsHide: true });
+  _probeDebug.push(`[conda-probe] WSL env: ${((debugEnv.stdout || "") + (debugEnv.stderr || "")).trim().slice(0, 500)}`);
+  const condaCmd = `${initSnippet} conda run --no-capture-output -n foundation_stereo python3 -c "import torch; print(torch.cuda.is_available())"`;
   _probeDebug.push(`[conda-probe] cmd: ${condaCmd}`);
   try {
     const r = spawnSync(
@@ -269,22 +275,14 @@ function bashSingleQuote(s) {
 }
 
 /**
- * Shell snippet that initializes conda in a non-interactive bash -lc context.
- * ~/.bashrc usually guards behind an interactive check, so `conda` is missing.
- * We source conda.sh directly from common install locations.
+ * Shell snippet that sources the conda init helper script in WSL.
+ * Built lazily once we know the repo root's WSL path.
  */
-const WSL_CONDA_INIT = [
-  'for _d in "$HOME/miniconda3" "$HOME/miniforge3" "$HOME/anaconda3" "$HOME/mambaforge" "/opt/conda" "/usr/local/conda";',
-  "do",
-  '  if [ -f "$_d/etc/profile.d/conda.sh" ]; then',
-  '    . "$_d/etc/profile.d/conda.sh"; break;',
-  "  fi;",
-  "done;",
-  "unset _d;",
-  'if ! command -v conda >/dev/null 2>&1; then',
-  "  eval \"$(sed -n '/>>> conda initialize >>>/,/<<< conda initialize <<</p' ~/.bashrc 2>/dev/null)\";",
-  "fi;",
-].join(" ");
+function wslCondaInit() {
+  const initScript = path.join(__dirname, "..", "scripts", "wsl_conda_init.sh");
+  const wslPath = winPathToWSL(initScript);
+  return `. ${bashSingleQuote(wslPath)};`;
+}
 
 function findPython() {
   const candidates = [
@@ -406,7 +404,7 @@ ipcMain.handle("check-depth-backend", async () => {
       ? `export FOUNDATION_STEREO_ROOT=${bashSingleQuote(winPathToWSL(thirdParty))} && `
       : "";
     const probeWsl = winPathToWSL(probePath);
-    const cmd = `${WSL_CONDA_INIT} ${envPrefix}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(probeWsl)}`;
+    const cmd = `${wslCondaInit()} ${envPrefix}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(probeWsl)}`;
     _probeDebug.push(`[probe] WSL probe cmd: ${cmd}`);
     const wr = spawnSync("wsl.exe", ["bash", "-lc", cmd], {
       encoding: "utf-8",
@@ -520,7 +518,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
     const envExports = fsRootWsl
       ? `export FOUNDATION_STEREO_ROOT=${bashSingleQuote(fsRootWsl)} && `
       : "";
-    const cmd = `${WSL_CONDA_INIT} ${envExports}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(
+    const cmd = `${wslCondaInit()} ${envExports}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(
       scriptWsl
     )} --job-file ${bashSingleQuote(jobWsl)}`;
     pythonProcess = spawn("wsl.exe", ["bash", "-lc", cmd], {
