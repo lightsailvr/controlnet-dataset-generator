@@ -210,18 +210,21 @@ function wslFoundationStereoCondaOk() {
   if (_wslCondaEnvCache !== null) return _wslCondaEnvCache;
   if (process.platform !== "win32" || !isWSLAvailable()) {
     _wslCondaEnvCache = { ok: false, reason: "wsl_unavailable" };
+    console.log("[WSL-debug] wslFoundationStereoCondaOk skip:", _wslCondaEnvCache);
     return _wslCondaEnvCache;
   }
+  const condaCmd = `${WSL_CONDA_INIT} conda run --no-capture-output -n foundation_stereo python3 -c "import torch; print(torch.cuda.is_available())"`;
+  console.log("[WSL-debug] conda probe cmd:", condaCmd);
   try {
     const r = spawnSync(
       "wsl.exe",
-      [
-        "bash",
-        "-lc",
-        `${WSL_CONDA_INIT} conda run --no-capture-output -n foundation_stereo python3 -c "import torch; print(torch.cuda.is_available())"`,
-      ],
+      ["bash", "-lc", condaCmd],
       { encoding: "utf-8", timeout: 120000, windowsHide: true }
     );
+    console.log("[WSL-debug] conda probe status:", r.status);
+    console.log("[WSL-debug] conda probe stdout:", (r.stdout || "").slice(0, 500));
+    console.log("[WSL-debug] conda probe stderr:", (r.stderr || "").slice(0, 500));
+    if (r.error) console.log("[WSL-debug] conda probe error:", r.error.message);
     const out = ((r.stdout || "") + (r.stderr || "")).trim();
     const cudaOk = out.includes("True");
     _wslCondaEnvCache = {
@@ -230,8 +233,10 @@ function wslFoundationStereoCondaOk() {
       reason: r.status === 0 ? null : out || `exit ${r.status}`,
     };
   } catch (e) {
+    console.log("[WSL-debug] conda probe exception:", e.message || String(e));
     _wslCondaEnvCache = { ok: false, reason: e.message || String(e) };
   }
+  console.log("[WSL-debug] wslFoundationStereoCondaOk result:", JSON.stringify(_wslCondaEnvCache));
   return _wslCondaEnvCache;
 }
 
@@ -344,13 +349,17 @@ ipcMain.handle("check-dependencies", async () => {
 });
 
 ipcMain.handle("check-depth-backend", async () => {
+  console.log("[depth-probe] ===== check-depth-backend start =====");
+  _wslCondaEnvCache = null; // clear cache so re-probe is fresh
   const repoRoot = path.join(__dirname, "..");
   const probePath = path.join(repoRoot, "python", "depth_backend_probe.py");
+  console.log("[depth-probe] probePath:", probePath, "exists:", fs.existsSync(probePath));
   if (!fs.existsSync(probePath)) {
     return { ok: false, error: "depth_backend_probe.py missing" };
   }
 
   const pythonPath = findPython();
+  console.log("[depth-probe] native pythonPath:", pythonPath);
   let data = { ok: false, error: "Python 3 not found" };
   if (pythonPath) {
     const r = spawnSync(pythonPath, [probePath], {
@@ -358,6 +367,9 @@ ipcMain.handle("check-depth-backend", async () => {
       timeout: 120000,
       cwd: repoRoot,
     });
+    console.log("[depth-probe] native status:", r.status, "error:", r.error?.message);
+    console.log("[depth-probe] native stdout:", (r.stdout || "").slice(0, 500));
+    console.log("[depth-probe] native stderr:", (r.stderr || "").slice(0, 500));
     if (r.error) {
       data = { ok: false, error: r.error.message };
     } else if (r.status !== 0) {
@@ -375,29 +387,41 @@ ipcMain.handle("check-depth-backend", async () => {
   }
 
   const nativeFsReady = data.foundation_stereo_ready === true;
+  console.log("[depth-probe] nativeFsReady:", nativeFsReady, "platform:", process.platform);
 
   if (process.platform === "win32") {
+    console.log("[depth-probe] === WSL section ===");
     const conda = wslFoundationStereoCondaOk();
+    console.log("[depth-probe] conda result:", JSON.stringify(conda));
     const thirdParty = path.join(repoRoot, "third_party", "FoundationStereo");
-    const envPrefix = fs.existsSync(thirdParty)
+    const thirdPartyExists = fs.existsSync(thirdParty);
+    console.log("[depth-probe] thirdParty:", thirdParty, "exists:", thirdPartyExists);
+    const envPrefix = thirdPartyExists
       ? `export FOUNDATION_STEREO_ROOT=${bashSingleQuote(winPathToWSL(thirdParty))} && `
       : "";
     const probeWsl = winPathToWSL(probePath);
     const cmd = `${WSL_CONDA_INIT} ${envPrefix}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(probeWsl)}`;
+    console.log("[depth-probe] WSL probe cmd:", cmd);
     const wr = spawnSync("wsl.exe", ["bash", "-lc", cmd], {
       encoding: "utf-8",
       timeout: 120000,
       windowsHide: true,
     });
+    console.log("[depth-probe] WSL probe status:", wr.status);
+    console.log("[depth-probe] WSL probe stdout:", (wr.stdout || "").slice(0, 1000));
+    console.log("[depth-probe] WSL probe stderr:", (wr.stderr || "").slice(0, 1000));
+    if (wr.error) console.log("[depth-probe] WSL probe error:", wr.error.message);
     let wslProbe = null;
     if (!wr.error && wr.status === 0) {
       try {
         wslProbe = JSON.parse((wr.stdout || "").trim());
-      } catch {
+      } catch (parseErr) {
+        console.log("[depth-probe] WSL probe JSON parse error:", parseErr.message);
         wslProbe = null;
       }
     }
     const wslFsReady = Boolean(wslProbe && wslProbe.foundation_stereo_ready === true);
+    console.log("[depth-probe] wslProbe:", JSON.stringify(wslProbe), "wslFsReady:", wslFsReady);
     data = {
       ...data,
       native_foundation_stereo_ready: nativeFsReady,
@@ -425,6 +449,7 @@ ipcMain.handle("check-depth-backend", async () => {
       data.wsl_weights_hint =
         "Conda env OK but weights or cfg.yaml not found. Download 23-51-11 into third_party/FoundationStereo/pretrained_models/ (see README).";
     }
+    console.log("[depth-probe] final data:", JSON.stringify(data));
   }
 
   return data;
