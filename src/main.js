@@ -206,29 +206,19 @@ let _wslCondaEnvCache = null;
  * Check whether `conda run -n foundation_stereo` works inside default WSL distro.
  * Cached for the session.
  */
-/** @type {string[]} Collects debug lines for the current probe cycle. */
-let _probeDebug = [];
-
 function wslFoundationStereoCondaOk() {
   if (_wslCondaEnvCache !== null) return _wslCondaEnvCache;
   if (process.platform !== "win32" || !isWSLAvailable()) {
     _wslCondaEnvCache = { ok: false, reason: "wsl_unavailable" };
-    _probeDebug.push(`[conda-probe] skip: ${JSON.stringify(_wslCondaEnvCache)}`);
     return _wslCondaEnvCache;
   }
-  _probeDebug.push(`[conda-probe] init snippet: ${WSL_CONDA_INIT}`);
   const condaCmd = `${WSL_CONDA_INIT} conda run --no-capture-output -n foundation_stereo python3 -c "import torch; print(torch.cuda.is_available())"`;
-  _probeDebug.push(`[conda-probe] cmd: ${condaCmd}`);
   try {
     const r = spawnSync(
       "wsl.exe",
       ["bash", "-lc", condaCmd],
       { encoding: "utf-8", timeout: 120000, windowsHide: true }
     );
-    _probeDebug.push(`[conda-probe] status: ${r.status}`);
-    _probeDebug.push(`[conda-probe] stdout: ${(r.stdout || "").slice(0, 800)}`);
-    _probeDebug.push(`[conda-probe] stderr: ${(r.stderr || "").slice(0, 800)}`);
-    if (r.error) _probeDebug.push(`[conda-probe] error: ${r.error.message}`);
     const out = ((r.stdout || "") + (r.stderr || "")).trim();
     const cudaOk = out.includes("True");
     _wslCondaEnvCache = {
@@ -237,10 +227,8 @@ function wslFoundationStereoCondaOk() {
       reason: r.status === 0 ? null : out || `exit ${r.status}`,
     };
   } catch (e) {
-    _probeDebug.push(`[conda-probe] exception: ${e.message || String(e)}`);
     _wslCondaEnvCache = { ok: false, reason: e.message || String(e) };
   }
-  _probeDebug.push(`[conda-probe] result: ${JSON.stringify(_wslCondaEnvCache)}`);
   return _wslCondaEnvCache;
 }
 
@@ -348,17 +336,13 @@ ipcMain.handle("check-dependencies", async () => {
 
 ipcMain.handle("check-depth-backend", async () => {
   _wslCondaEnvCache = null;
-  _probeDebug = [];
-  _probeDebug.push(`[probe] platform: ${process.platform}`);
   const repoRoot = path.join(__dirname, "..");
   const probePath = path.join(repoRoot, "python", "depth_backend_probe.py");
-  _probeDebug.push(`[probe] probePath: ${probePath} exists: ${fs.existsSync(probePath)}`);
   if (!fs.existsSync(probePath)) {
-    return { ok: false, error: "depth_backend_probe.py missing", _debug: _probeDebug };
+    return { ok: false, error: "depth_backend_probe.py missing" };
   }
 
   const pythonPath = findPython();
-  _probeDebug.push(`[probe] native pythonPath: ${pythonPath}`);
   let data = { ok: false, error: "Python 3 not found" };
   if (pythonPath) {
     const r = spawnSync(pythonPath, [probePath], {
@@ -366,9 +350,6 @@ ipcMain.handle("check-depth-backend", async () => {
       timeout: 120000,
       cwd: repoRoot,
     });
-    _probeDebug.push(`[probe] native status: ${r.status} error: ${r.error?.message || "none"}`);
-    _probeDebug.push(`[probe] native stdout: ${(r.stdout || "").slice(0, 800)}`);
-    _probeDebug.push(`[probe] native stderr: ${(r.stderr || "").slice(0, 800)}`);
     if (r.error) {
       data = { ok: false, error: r.error.message };
     } else if (r.status !== 0) {
@@ -386,40 +367,29 @@ ipcMain.handle("check-depth-backend", async () => {
   }
 
   const nativeFsReady = data.foundation_stereo_ready === true;
-  _probeDebug.push(`[probe] nativeFsReady: ${nativeFsReady}`);
 
   if (process.platform === "win32") {
-    _probeDebug.push("[probe] === entering WSL section ===");
     const conda = wslFoundationStereoCondaOk();
     const thirdParty = path.join(repoRoot, "third_party", "FoundationStereo");
-    const thirdPartyExists = fs.existsSync(thirdParty);
-    _probeDebug.push(`[probe] thirdParty: ${thirdParty} exists: ${thirdPartyExists}`);
-    const envPrefix = thirdPartyExists
+    const envPrefix = fs.existsSync(thirdParty)
       ? `export FOUNDATION_STEREO_ROOT=${bashSingleQuote(winPathToWSL(thirdParty))} && `
       : "";
     const probeWsl = winPathToWSL(probePath);
     const cmd = `${WSL_CONDA_INIT} ${envPrefix}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(probeWsl)}`;
-    _probeDebug.push(`[probe] WSL probe cmd: ${cmd}`);
     const wr = spawnSync("wsl.exe", ["bash", "-lc", cmd], {
       encoding: "utf-8",
       timeout: 120000,
       windowsHide: true,
     });
-    _probeDebug.push(`[probe] WSL probe status: ${wr.status}`);
-    _probeDebug.push(`[probe] WSL probe stdout: ${(wr.stdout || "").slice(0, 1000)}`);
-    _probeDebug.push(`[probe] WSL probe stderr: ${(wr.stderr || "").slice(0, 1000)}`);
-    if (wr.error) _probeDebug.push(`[probe] WSL probe spawn error: ${wr.error.message}`);
     let wslProbe = null;
     if (!wr.error && wr.status === 0) {
       try {
         wslProbe = JSON.parse((wr.stdout || "").trim());
-      } catch (parseErr) {
-        _probeDebug.push(`[probe] WSL JSON parse fail: ${parseErr.message} raw: ${(wr.stdout || "").slice(0, 300)}`);
+      } catch {
         wslProbe = null;
       }
     }
     const wslFsReady = Boolean(wslProbe && wslProbe.foundation_stereo_ready === true);
-    _probeDebug.push(`[probe] wslProbe: ${JSON.stringify(wslProbe)} wslFsReady: ${wslFsReady}`);
     data = {
       ...data,
       native_foundation_stereo_ready: nativeFsReady,
@@ -449,17 +419,11 @@ ipcMain.handle("check-depth-backend", async () => {
     }
   }
 
-  data._debug = _probeDebug;
   return data;
 });
 
 ipcMain.handle("start-processing", async (event, { files, config, outputDir }) => {
   const repoRoot = path.join(__dirname, "..");
-  // #region agent log
-  const _dbgFile = path.join(repoRoot, "debug-11605c.log");
-  const _dbg = (msg, data) => { try { fs.appendFileSync(_dbgFile, JSON.stringify({sessionId:'11605c',location:'main.js',message:msg,data,timestamp:Date.now()})+'\n'); } catch(_e){} };
-  _dbg('start-processing called', {fileCount:files?.length,depthBackend:config?.depthBackend,outputDir,platform:process.platform});
-  // #endregion
   const scriptPath = path.join(repoRoot, "python", "equirect_dataset_generator.py");
 
   const fileList = files.map((f) => f.path);
@@ -469,9 +433,6 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
   const _condaResult = wslFoundationStereoCondaOk();
   const _needsWsl = depthBackendNeedsWSLFoundationStereo(config.depthBackend);
   const useWsl = process.platform === "win32" && _wslAvail && _condaResult.ok && _needsWsl;
-  // #region agent log
-  _dbg('useWsl decision', {useWsl,wslAvail:_wslAvail,condaOk:_condaResult.ok,condaReason:_condaResult.reason,needsWsl:_needsWsl,depthBackend:config.depthBackend});
-  // #endregion
 
   const depthExplicit = (config.depthBackend || "").toLowerCase() === "foundation_stereo";
   if (depthExplicit && !useWsl) {
@@ -521,9 +482,6 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
   const jobFile = path.join(os.tmpdir(), `controlnet_job_${Date.now()}.json`);
   const jobToWrite = useWsl ? translateJobForWSL(jobPayload) : jobPayload;
   fs.writeFileSync(jobFile, JSON.stringify(jobToWrite));
-  // #region agent log
-  _dbg('job file written', {jobFile,useWsl,fileCount:jobToWrite.files?.length,firstFile:jobToWrite.files?.[0],outputDir:jobToWrite.outputDir,jobContent:JSON.stringify(jobToWrite).slice(0,500)});
-  // #endregion
 
   pythonProcessViaWSL = Boolean(useWsl);
 
@@ -544,17 +502,11 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
     const cmd = `${WSL_CONDA_INIT} ${envExports}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(
       scriptWsl
     )} --job-file ${bashSingleQuote(jobWsl)}`;
-    // #region agent log
-    _dbg('WSL spawn cmd', {cmd:cmd.slice(0,500),jobWsl,scriptWsl,fsRootWsl});
-    // #endregion
     pythonProcess = spawn("wsl.exe", ["bash", "-lc", cmd], {
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
       windowsHide: true,
     });
   } else {
-    // #region agent log
-    _dbg('native spawn', {pythonPath,scriptPath,jobFile});
-    // #endregion
     const args = [scriptPath, "--job-file", jobFile];
     pythonProcess = spawn(pythonPath, args, {
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
@@ -562,31 +514,20 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
   }
 
   pythonProcess.stdout.on("data", (data) => {
-    const chunk = data.toString();
-    // #region agent log
-    _dbg('stdout', {chunk:chunk.slice(0,500)});
-    // #endregion
-    const lines = chunk.split("\n").filter(Boolean);
+    const lines = data.toString().split("\n").filter(Boolean);
     for (const line of lines) {
       mainWindow?.webContents.send("process-log", line);
     }
   });
 
   pythonProcess.stderr.on("data", (data) => {
-    const chunk = data.toString();
-    // #region agent log
-    _dbg('stderr', {chunk:chunk.slice(0,500)});
-    // #endregion
-    const lines = chunk.split("\n").filter(Boolean);
+    const lines = data.toString().split("\n").filter(Boolean);
     for (const line of lines) {
       mainWindow?.webContents.send("process-log", `[stderr] ${line}`);
     }
   });
 
   pythonProcess.on("close", (code) => {
-    // #region agent log
-    _dbg('process closed', {code,outputDir,useWsl});
-    // #endregion
     const resultsFile = path.join(outputDir, "generation_results.json");
     let results = null;
     try {
@@ -596,9 +537,6 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
     } catch (e) {
       console.error("Could not read results:", e);
     }
-    // #region agent log
-    _dbg('sending process-complete', {code,hasResults:!!results,resultsFile,resultsExists:fs.existsSync(resultsFile)});
-    // #endregion
 
     mainWindow?.webContents.send("process-complete", {
       code,
