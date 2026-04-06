@@ -3977,9 +3977,12 @@
 
     window.api.onProcessComplete(({ code, results }) => {
       state.processing = false;
-      if (code === 0 && results) {
+      const sampleCount = results?.total_samples ?? results?.samples?.length ?? 0;
+      if (code === 0 && results && sampleCount > 0) {
         state.results = results;
         state.view = "complete";
+      } else if (code === 0 && sampleCount === 0) {
+        state.processLog.push("WARNING: 0 samples generated. If using WSL, make sure source files are on a local drive (C:, D:, etc.) — network/mapped drives are not accessible from WSL.");
       } else {
         state.processLog.push(code === 0
           ? "Processing finished (no results file found)"

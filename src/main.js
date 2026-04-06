@@ -499,6 +499,25 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
     }
   }
 
+  if (useWsl) {
+    const badFiles = fileList.filter((f) => {
+      const m = /^([a-zA-Z]):/.exec(f);
+      if (!m) return false;
+      const wslPath = winPathToWSL(f);
+      const r = spawnSync("wsl.exe", ["bash", "-c", `test -e ${bashSingleQuote(wslPath)} && echo OK`], {
+        encoding: "utf-8", timeout: 5000, windowsHide: true,
+      });
+      return !(r.stdout || "").includes("OK");
+    });
+    if (badFiles.length > 0) {
+      const drives = [...new Set(badFiles.map((f) => f[0].toUpperCase() + ":"))].join(", ");
+      return {
+        ok: false,
+        error: `${badFiles.length} file(s) on drive(s) ${drives} are not accessible from WSL2. Network/mapped drives are not auto-mounted. Copy files to a local drive (C:, D:) or mount the drive in WSL first.`,
+      };
+    }
+  }
+
   const jobFile = path.join(os.tmpdir(), `controlnet_job_${Date.now()}.json`);
   const jobToWrite = useWsl ? translateJobForWSL(jobPayload) : jobPayload;
   fs.writeFileSync(jobFile, JSON.stringify(jobToWrite));
