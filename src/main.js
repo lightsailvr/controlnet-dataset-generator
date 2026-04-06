@@ -274,13 +274,16 @@ function bashSingleQuote(s) {
  * We source conda.sh directly from common install locations.
  */
 const WSL_CONDA_INIT = [
-  'for _d in "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/mambaforge" "/opt/conda";',
+  'for _d in "$HOME/miniconda3" "$HOME/miniforge3" "$HOME/anaconda3" "$HOME/mambaforge" "/opt/conda" "/usr/local/conda";',
   "do",
   '  if [ -f "$_d/etc/profile.d/conda.sh" ]; then',
   '    . "$_d/etc/profile.d/conda.sh"; break;',
   "  fi;",
   "done;",
   "unset _d;",
+  'if ! command -v conda >/dev/null 2>&1; then',
+  "  eval \"$(sed -n '/>>> conda initialize >>>/,/<<< conda initialize <<</p' ~/.bashrc 2>/dev/null)\";",
+  "fi;",
 ].join(" ");
 
 function findPython() {
