@@ -218,7 +218,7 @@ function wslFoundationStereoCondaOk() {
       [
         "bash",
         "-lc",
-        'conda run --no-capture-output -n foundation_stereo python3 -c "import torch; print(torch.cuda.is_available())"',
+        `${WSL_CONDA_INIT} conda run --no-capture-output -n foundation_stereo python3 -c "import torch; print(torch.cuda.is_available())"`,
       ],
       { encoding: "utf-8", timeout: 120000, windowsHide: true }
     );
@@ -259,6 +259,21 @@ function translateJobForWSL(job) {
 function bashSingleQuote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
+
+/**
+ * Shell snippet that initializes conda in a non-interactive bash -lc context.
+ * ~/.bashrc usually guards behind an interactive check, so `conda` is missing.
+ * We source conda.sh directly from common install locations.
+ */
+const WSL_CONDA_INIT = [
+  'for _d in "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/mambaforge" "/opt/conda";',
+  "do",
+  '  if [ -f "$_d/etc/profile.d/conda.sh" ]; then',
+  '    . "$_d/etc/profile.d/conda.sh"; break;',
+  "  fi;",
+  "done;",
+  "unset _d;",
+].join(" ");
 
 function findPython() {
   const candidates = [
@@ -368,7 +383,7 @@ ipcMain.handle("check-depth-backend", async () => {
       ? `export FOUNDATION_STEREO_ROOT=${bashSingleQuote(winPathToWSL(thirdParty))} && `
       : "";
     const probeWsl = winPathToWSL(probePath);
-    const cmd = `${envPrefix}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(probeWsl)}`;
+    const cmd = `${WSL_CONDA_INIT} ${envPrefix}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(probeWsl)}`;
     const wr = spawnSync("wsl.exe", ["bash", "-lc", cmd], {
       encoding: "utf-8",
       timeout: 120000,
@@ -474,7 +489,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
     const envExports = fsRootWsl
       ? `export FOUNDATION_STEREO_ROOT=${bashSingleQuote(fsRootWsl)} && `
       : "";
-    const cmd = `${envExports}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(
+    const cmd = `${WSL_CONDA_INIT} ${envExports}conda run --no-capture-output -n foundation_stereo python3 ${bashSingleQuote(
       scriptWsl
     )} --job-file ${bashSingleQuote(jobWsl)}`;
     pythonProcess = spawn("wsl.exe", ["bash", "-lc", cmd], {
