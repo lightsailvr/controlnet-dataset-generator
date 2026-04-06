@@ -335,8 +335,11 @@ def process_files(file_paths: list[str], config: dict, output_dir: str) -> None:
     )
 
     elapsed = time.time() - start
+    depth_count = sum(1 for s in samples if s.get("depth"))
     log(f"\n{'=' * 60}")
-    log(f"  DONE — {elapsed:.1f}s | {len(samples)} samples")
+    log(f"  DONE — {elapsed:.1f}s | {len(samples)} samples | {depth_count} depth maps")
+    if extract_depth and depth_count == 0 and len(samples) > 0:
+        log("  ⚠ No depth maps were generated — check errors above")
     log(f"{'=' * 60}\n")
 
 
@@ -372,8 +375,11 @@ def _write_sample(
             d = depth_from_sbs_bgr(bgr_full, **dk)
             depth_rel = f"depth/{frame_id}.png"
             cv2.imwrite(str(depth_dir / f"{frame_id}.png"), d)
+            log(f"    ✓ depth {frame_id}")
         except Exception as e:
-            log(f"    WARNING depth for {frame_id}: {e}")
+            import traceback
+            log(f"    ERROR depth for {frame_id}: {e}")
+            log(f"    {traceback.format_exc().strip().splitlines()[-1]}")
 
     samples.append({
         "id": frame_id,
