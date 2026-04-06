@@ -276,7 +276,7 @@ function bashSingleQuote(s) {
  * every common bin directory.  Only existing dirs matter at runtime.
  */
 const WSL_CONDA_INIT =
-  'export PATH="$HOME/miniconda3/bin:$HOME/miniforge3/bin:$HOME/anaconda3/bin:$HOME/mambaforge/bin:/opt/conda/bin:$PATH";';
+  'export PATH="$HOME/miniconda3/condabin:$HOME/miniconda3/bin:$HOME/miniforge3/condabin:$HOME/miniforge3/bin:$HOME/anaconda3/condabin:$HOME/anaconda3/bin:$HOME/mambaforge/condabin:$HOME/mambaforge/bin:/opt/conda/condabin:/opt/conda/bin:$PATH";';
 
 function findPython() {
   const candidates = [
