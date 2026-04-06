@@ -454,10 +454,12 @@ ipcMain.handle("check-depth-backend", async () => {
 });
 
 ipcMain.handle("start-processing", async (event, { files, config, outputDir }) => {
-  // #region agent log
-  fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:456',message:'start-processing called',data:{fileCount:files?.length,depthBackend:config?.depthBackend,outputDir,platform:process.platform},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const repoRoot = path.join(__dirname, "..");
+  // #region agent log
+  const _dbgFile = path.join(repoRoot, "debug-11605c.log");
+  const _dbg = (msg, data) => { try { fs.appendFileSync(_dbgFile, JSON.stringify({sessionId:'11605c',location:'main.js',message:msg,data,timestamp:Date.now()})+'\n'); } catch(_e){} };
+  _dbg('start-processing called', {fileCount:files?.length,depthBackend:config?.depthBackend,outputDir,platform:process.platform});
+  // #endregion
   const scriptPath = path.join(repoRoot, "python", "equirect_dataset_generator.py");
 
   const fileList = files.map((f) => f.path);
@@ -468,7 +470,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
   const _needsWsl = depthBackendNeedsWSLFoundationStereo(config.depthBackend);
   const useWsl = process.platform === "win32" && _wslAvail && _condaResult.ok && _needsWsl;
   // #region agent log
-  fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:463',message:'useWsl decision',data:{useWsl,wslAvail:_wslAvail,condaOk:_condaResult.ok,condaReason:_condaResult.reason,needsWsl:_needsWsl,depthBackend:config.depthBackend,cachedConda:JSON.stringify(_condaResult)},timestamp:Date.now()})}).catch(()=>{});
+  _dbg('useWsl decision', {useWsl,wslAvail:_wslAvail,condaOk:_condaResult.ok,condaReason:_condaResult.reason,needsWsl:_needsWsl,depthBackend:config.depthBackend});
   // #endregion
 
   const depthExplicit = (config.depthBackend || "").toLowerCase() === "foundation_stereo";
@@ -501,7 +503,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
   const jobToWrite = useWsl ? translateJobForWSL(jobPayload) : jobPayload;
   fs.writeFileSync(jobFile, JSON.stringify(jobToWrite));
   // #region agent log
-  fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:495',message:'job file written',data:{jobFile,useWsl,jobPayloadKeys:Object.keys(jobToWrite),fileCount:jobToWrite.files?.length,firstFile:jobToWrite.files?.[0],outputDir:jobToWrite.outputDir},timestamp:Date.now()})}).catch(()=>{});
+  _dbg('job file written', {jobFile,useWsl,fileCount:jobToWrite.files?.length,firstFile:jobToWrite.files?.[0],outputDir:jobToWrite.outputDir,jobContent:JSON.stringify(jobToWrite).slice(0,500)});
   // #endregion
 
   pythonProcessViaWSL = Boolean(useWsl);
@@ -524,7 +526,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
       scriptWsl
     )} --job-file ${bashSingleQuote(jobWsl)}`;
     // #region agent log
-    fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:515',message:'WSL spawn cmd',data:{cmd,jobWsl,scriptWsl,fsRootWsl},timestamp:Date.now()})}).catch(()=>{});
+    _dbg('WSL spawn cmd', {cmd:cmd.slice(0,500),jobWsl,scriptWsl,fsRootWsl});
     // #endregion
     pythonProcess = spawn("wsl.exe", ["bash", "-lc", cmd], {
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
@@ -532,7 +534,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
     });
   } else {
     // #region agent log
-    fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:523',message:'native spawn',data:{pythonPath,scriptPath,jobFile},timestamp:Date.now()})}).catch(()=>{});
+    _dbg('native spawn', {pythonPath,scriptPath,jobFile});
     // #endregion
     const args = [scriptPath, "--job-file", jobFile];
     pythonProcess = spawn(pythonPath, args, {
@@ -543,7 +545,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
   pythonProcess.stdout.on("data", (data) => {
     const chunk = data.toString();
     // #region agent log
-    fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:stdout',message:'stdout',data:{chunk:chunk.slice(0,500)},timestamp:Date.now()})}).catch(()=>{});
+    _dbg('stdout', {chunk:chunk.slice(0,500)});
     // #endregion
     const lines = chunk.split("\n").filter(Boolean);
     for (const line of lines) {
@@ -554,7 +556,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
   pythonProcess.stderr.on("data", (data) => {
     const chunk = data.toString();
     // #region agent log
-    fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:stderr',message:'stderr',data:{chunk:chunk.slice(0,500)},timestamp:Date.now()})}).catch(()=>{});
+    _dbg('stderr', {chunk:chunk.slice(0,500)});
     // #endregion
     const lines = chunk.split("\n").filter(Boolean);
     for (const line of lines) {
@@ -564,7 +566,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
 
   pythonProcess.on("close", (code) => {
     // #region agent log
-    fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:close',message:'process closed',data:{code,outputDir,useWsl},timestamp:Date.now()})}).catch(()=>{});
+    _dbg('process closed', {code,outputDir,useWsl});
     // #endregion
     const resultsFile = path.join(outputDir, "generation_results.json");
     let results = null;
@@ -576,7 +578,7 @@ ipcMain.handle("start-processing", async (event, { files, config, outputDir }) =
       console.error("Could not read results:", e);
     }
     // #region agent log
-    fetch('http://127.0.0.1:7853/ingest/0c87126c-c3cf-4d10-8095-99f80bf6e093',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'11605c'},body:JSON.stringify({sessionId:'11605c',location:'main.js:close-send',message:'sending process-complete',data:{code,hasResults:!!results,resultsFile,resultsExists:fs.existsSync(resultsFile)},timestamp:Date.now()})}).catch(()=>{});
+    _dbg('sending process-complete', {code,hasResults:!!results,resultsFile,resultsExists:fs.existsSync(resultsFile)});
     // #endregion
 
     mainWindow?.webContents.send("process-complete", {
